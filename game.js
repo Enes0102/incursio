@@ -334,10 +334,10 @@ class FloatingText {
 // Yeni bir güçlendirme eklemek için: buraya bir satır ekle,
 // sonra applyPowerUp içinde ne yapacağını yaz
 const POWERUP_TYPES = {
-    heal:   { color: "#66bb6a", label: "+", name: "+1 CAN" },
-    rapid:  { color: "#ffd54f", label: "R", name: "HIZLI ATEŞ" },
-    triple: { color: "#4fc3f7", label: "3", name: "ÜÇLÜ ATIŞ" },
-    shield: { color: "#ce93d8", label: "S", name: "KALKAN" },
+    heal:   { color: "#66bb6a", label: "+", name: "+1 HEALTH" },
+    rapid:  { color: "#ffd54f", label: "R", name: "RAPID FIRE" },
+    triple: { color: "#4fc3f7", label: "3", name: "TRIPLE SHOT" },
+    shield: { color: "#ce93d8", label: "S", name: "SHIELD" },
 };
 
 // Süreli güçlendirmeler kaç saniye sürsün
@@ -791,7 +791,7 @@ function draw() {
         ctx.font = "16px Arial";
         ctx.fillStyle = "#9ca3af";
         ctx.textAlign = "right";
-        ctx.fillText("Ses kapalı (M)", canvas.width - 16, 58);
+        ctx.fillText("Sound off (M)", canvas.width - 16, 58);
         ctx.textAlign = "left";
     }
 }
@@ -800,13 +800,13 @@ function drawHUD() {
     ctx.font = "20px Arial";
 
     ctx.fillStyle = "#ffffff";
-    ctx.fillText("Skor: " + score, 16, 32);
+    ctx.fillText("Score: " + score, 16, 32);
 
     ctx.fillStyle = "#ef5350";
     ctx.fillText("♥ ".repeat(player.health), 16, 60);
 
     ctx.fillStyle = "#ffffff";
-    ctx.fillText("Süre: " + Math.floor(gameTime) + " sn", 16, 88);
+    ctx.fillText("Time: " + Math.floor(gameTime) + "s", 16, 88);
 
     // Aktif güçlendirmeler ve kalan süreleri
     let y = 120;
@@ -815,7 +815,7 @@ function drawHUD() {
         const timeLeft = player.powerTimers[type];
         if (timeLeft > 0) {
             ctx.fillStyle = POWERUP_TYPES[type].color;
-            ctx.fillText(POWERUP_TYPES[type].name + "  " + timeLeft.toFixed(1) + " sn", 16, y);
+            ctx.fillText(POWERUP_TYPES[type].name + "  " + timeLeft.toFixed(1) + "s", 16, y);
             y += 24;
         }
     }
@@ -823,7 +823,7 @@ function drawHUD() {
 
     ctx.textAlign = "right";
     ctx.fillStyle = "#9ca3af";
-    ctx.fillText("Rekor: " + highScore, canvas.width - 16, 32);
+    ctx.fillText("Best: " + highScore, canvas.width - 16, 32);
     ctx.textAlign = "left";
 }
 
@@ -842,9 +842,9 @@ function drawMenu() {
 
     const cy = canvas.height / 2;
     drawCenteredText("TOP-DOWN SHOOTER", cy - 60, "bold 56px Arial", "#4fc3f7");
-    drawCenteredText("Başlamak için tıkla veya Enter'a bas", cy + 10, "24px Arial", "#ffffff");
-    drawCenteredText("WASD: hareket   •   Fare: nişan al, basılı tut: ateş   •   M: ses", cy + 50, "18px Arial", "#9ca3af");
-    drawCenteredText("En yüksek skor: " + highScore, cy + 100, "20px Arial", "#ffd54f");
+    drawCenteredText("Click or press Enter to start", cy + 10, "24px Arial", "#ffffff");
+    drawCenteredText("WASD: move   •   Mouse: aim, hold to shoot   •   M: sound", cy + 50, "18px Arial", "#9ca3af");
+    drawCenteredText("High score: " + highScore, cy + 100, "20px Arial", "#ffd54f");
 }
 
 function drawGameOver() {
@@ -852,16 +852,16 @@ function drawGameOver() {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const cy = canvas.height / 2;
-    drawCenteredText("OYUN BİTTİ", cy - 50, "bold 48px Arial", "#ffffff");
-    drawCenteredText("Skor: " + score, cy, "26px Arial", "#ffffff");
+    drawCenteredText("GAME OVER", cy - 50, "bold 48px Arial", "#ffffff");
+    drawCenteredText("Score: " + score, cy, "26px Arial", "#ffffff");
 
     if (newRecord) {
-        drawCenteredText("YENİ REKOR!", cy + 38, "bold 24px Arial", "#ffd54f");
+        drawCenteredText("NEW HIGH SCORE!", cy + 38, "bold 24px Arial", "#ffd54f");
     } else {
-        drawCenteredText("Rekor: " + highScore, cy + 38, "22px Arial", "#9ca3af");
+        drawCenteredText("Best: " + highScore, cy + 38, "22px Arial", "#9ca3af");
     }
 
-    drawCenteredText("R: tekrar oyna   •   Esc: menü", cy + 85, "20px Arial", "#ffffff");
+    drawCenteredText("R: play again   •   Esc: menu", cy + 85, "20px Arial", "#ffffff");
 }
 
 

@@ -27,7 +27,9 @@ Survive as long as you can against endless waves of enemies that get faster, tou
 | `1` `2` `3` / Click | Choose an upgrade on level up |
 | `Enter` / Click | Start game |
 | `R` | Play again after game over |
-| `Esc` | Back to menu |
+| `Esc` / `P` | Pause / resume |
+| `R` / `Q` (paused) | Restart / quit to menu |
+| `Esc` (game over) | Back to menu |
 | `M` | Mute / unmute sound |
 
 ## Features
@@ -44,7 +46,7 @@ Survive as long as you can against endless waves of enemies that get faster, tou
 - **Game feel effects**: particle explosions, screen shake, damage flash and floating text
 - **Procedural sound effects** generated in real time with the Web Audio API — no audio files
 - **Persistent high score** saved in the browser with `localStorage`
-- **Game states**: start menu, gameplay and game over screens
+- **Game states**: start menu, pause menu, level-up and game over screens
 
 ### Enemies
 
@@ -78,7 +80,7 @@ A crowned giant appears every 60 seconds after a warning. It slowly chases you a
 | 🟢 `+` Health | Restores 1 health |
 | 🟡 `R` Rapid Fire | Shoots 2.5× faster for 6 seconds |
 | 🔵 `3` Triple Shot | Fires three bullets at once for 8 seconds |
-| 🟣 `S` Shield | Enemies are destroyed on contact for 6 seconds |
+| 🟣 `S` Shield | Blocks the next hit you take |
 
 ## Running Locally
 

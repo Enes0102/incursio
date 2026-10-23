@@ -109,6 +109,13 @@ canvas.addEventListener("mousedown", () => {
         return;
     }
 
+    // Duraklatma menüsündeysek tıklama buton seçmek içindir
+    if (state === "paused") {
+        const index = getPauseButtonAt(mouse.x, mouse.y);
+        if (index >= 0) PAUSE_BUTTONS[index].action();
+        return;
+    }
+
     mouse.down = true;
     if (state === "menu") startGame(); // menüdeyken tıklayınca oyun başlasın
 });
@@ -116,6 +123,11 @@ canvas.addEventListener("mousedown", () => {
 // window'a bağlıyoruz: fareyi canvas dışında bıraksan bile ateş dursun
 window.addEventListener("mouseup", () => {
     mouse.down = false;
+});
+
+// Başka pencereye/sekmeye geçince oyun kendiliğinden dursun
+window.addEventListener("blur", () => {
+    if (state === "playing") pauseGame();
 });
 
 
@@ -145,7 +157,10 @@ class Player {
         this.time = 0;            // yanıp sönme animasyonu için
 
         // GÜÇLENDİRMELER: her birinin kalan süresi (saniye). 0 = aktif değil
-        this.powerTimers = { rapid: 0, triple: 0, shield: 0 };
+        this.powerTimers = { rapid: 0, triple: 0 };
+
+        // KALKAN: süreli değil, bir sonraki hasarı engelleyip kırılır
+        this.hasShield = false;
     }
 
     update(dt) {
@@ -229,8 +244,8 @@ class Player {
             drawCircle(0, 0, this.radius, "#4fc3f7");
         }
 
-        // Kalkan aktifse etrafında bir halka
-        if (this.powerTimers.shield > 0) {
+        // Kalkan varsa etrafında bir halka
+        if (this.hasShield) {
             ctx.strokeStyle = "rgba(206, 147, 216, 0.8)";
             ctx.lineWidth = 3;
             ctx.beginPath();
@@ -738,8 +753,8 @@ const POWERUP_TYPES = {
     shield: { color: "#ce93d8", label: "S", name: "SHIELD" },
 };
 
-// Süreli güçlendirmeler kaç saniye sürsün
-const POWERUP_DURATION = { rapid: 6, triple: 8, shield: 6 };
+// Süreli güçlendirmeler kaç saniye sürsün (kalkan süreli değil, tek vuruşluk)
+const POWERUP_DURATION = { rapid: 6, triple: 8 };
 
 class PowerUp {
     constructor(x, y, type) {
@@ -796,6 +811,8 @@ function applyPowerUp(type) {
 
     if (type === "heal") {
         player.health = Math.min(player.maxHealth, player.health + 1);
+    } else if (type === "shield") {
+        player.hasShield = true; // zaten varsa üst üste binmez
     } else {
         player.powerTimers[type] = POWERUP_DURATION[type];
     }
@@ -915,6 +932,11 @@ const SOUNDS = {
         playTone("sawtooth", 140, 90, 0.5, 0.15, 0.6);
     },
     bossShoot: () => playTone("square", 320, 120, 0.18, 0.05),
+    shieldBreak: () => {
+        // Cam kırılması gibi: tiz, aşağı kayan ses ve kısa gürültü
+        playTone("triangle", 1400, 300, 0.25, 0.12);
+        playNoise(0.15, 0.15);
+    },
     bossDeath: () => {
         playNoise(1.2, 0.5);
         playTone("sawtooth", 300, 30, 1.4, 0.15);
@@ -949,7 +971,7 @@ function loadMuted() {
 // =====================================================
 //  OYUN DURUMU
 // =====================================================
-// state: "menu" | "playing" | "levelup" | "gameover"
+// state: "menu" | "playing" | "paused" | "levelup" | "gameover"
 let state = "menu";
 
 let player = new Player(canvas.width / 2, canvas.height / 2);
@@ -1047,6 +1069,50 @@ function endGame() {
     }
 }
 
+// =====================================================
+//  DURAKLATMA MENÜSÜ
+// =====================================================
+function pauseGame() {
+    state = "paused";
+    mouse.down = false;
+    // Basılı kalmış tuşları bırak, yoksa devam edince oyuncu kendi kendine yürür
+    for (const key in keys) keys[key] = false;
+}
+
+function resumeGame() {
+    state = "playing";
+    mouse.down = false;
+}
+
+// Menüdeki butonlar: yazı ve tıklayınca ne yapacağı
+const PAUSE_BUTTONS = [
+    { label: "Resume  (Esc)",    action: () => resumeGame() },
+    { label: "Restart  (R)",     action: () => startGame() },
+    { label: "Main menu  (Q)",   action: () => { state = "menu"; } },
+];
+
+const BUTTON_WIDTH = 260;
+const BUTTON_HEIGHT = 46;
+const BUTTON_GAP = 14;
+
+function getPauseButtonRect(index) {
+    return {
+        x: (canvas.width - BUTTON_WIDTH) / 2,
+        y: canvas.height / 2 - 60 + index * (BUTTON_HEIGHT + BUTTON_GAP),
+        w: BUTTON_WIDTH,
+        h: BUTTON_HEIGHT,
+    };
+}
+
+// Fare hangi butonun üstünde? (yoksa -1)
+function getPauseButtonAt(x, y) {
+    for (let i = 0; i < PAUSE_BUTTONS.length; i++) {
+        const r = getPauseButtonRect(i);
+        if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return i;
+    }
+    return -1;
+}
+
 function handleKeyPress(key) {
     // M her ekranda sesi açıp kapatsın
     if (key === "m") {
@@ -1056,6 +1122,12 @@ function handleKeyPress(key) {
 
     if (state === "menu" && (key === "enter" || key === " ")) {
         startGame();
+    } else if (state === "playing") {
+        if (key === "escape" || key === "p") pauseGame();
+    } else if (state === "paused") {
+        if (key === "escape" || key === "p") resumeGame();
+        if (key === "r") startGame();
+        if (key === "q") state = "menu";
     } else if (state === "levelup") {
         if (key === "1" || key === "2" || key === "3") {
             chooseUpgrade(Number(key) - 1);
@@ -1141,6 +1213,17 @@ function killEnemy(enemy) {
 // Oyuncu hasar alır. Dokunulmazsa hiçbir şey olmaz, false döner.
 function damagePlayer() {
     if (player.invincibleTimer > 0) return false;
+
+    // Kalkan varsa hasarı o yer ve kırılır
+    if (player.hasShield) {
+        player.hasShield = false;
+        player.invincibleTimer = 1; // kırıldıktan sonra da kısa bir koruma
+        spawnParticles(player.x, player.y, "#ce93d8", 25);
+        texts.push(new FloatingText(player.x, player.y - 30, "SHIELD BROKEN", "#ce93d8"));
+        shakeScreen(5, 0.15);
+        playSound("shieldBreak");
+        return true;
+    }
 
     player.health -= 1;
     player.invincibleTimer = 1; // 1 saniye dokunulmazlık
@@ -1245,16 +1328,7 @@ function update(dt) {
     for (const enemy of enemies) {
         if (enemy.dead || !isColliding(player, enemy)) continue;
 
-        // Kalkan aktifse: normal düşmanlar yok olur, boss'a bir şey olmaz, oyuncu hasar almaz
-        if (player.powerTimers.shield > 0) {
-            if (!enemy.isBoss) {
-                spawnParticles(enemy.x, enemy.y, "#ce93d8", 15);
-                killEnemy(enemy);
-            }
-            continue;
-        }
-
-        // Hasar aldıysak normal düşman da patlasın (boss patlamaz)
+        // Hasar aldıysak (ya da kalkan kırıldıysa) normal düşman da patlasın (boss patlamaz)
         if (damagePlayer() && !enemy.isBoss) {
             enemy.dead = true;
             spawnParticles(enemy.x, enemy.y, enemy.color, 15);
@@ -1266,12 +1340,6 @@ function update(dt) {
     // --- Düşman mermisi - oyuncu çarpışması ---
     for (const bullet of enemyBullets) {
         if (bullet.dead || !isColliding(player, bullet)) continue;
-
-        if (player.powerTimers.shield > 0) {
-            bullet.dead = true;
-            spawnParticles(bullet.x, bullet.y, "#ce93d8", 6);
-            continue;
-        }
 
         if (damagePlayer()) {
             bullet.dead = true;
@@ -1354,6 +1422,9 @@ function draw() {
     } else if (state === "levelup") {
         drawHUD();
         drawLevelUp();
+    } else if (state === "paused") {
+        drawHUD();
+        drawPause();
     } else if (state === "menu") {
         drawMenu();
     } else {
@@ -1396,6 +1467,10 @@ function drawHUD() {
             ctx.fillText(POWERUP_TYPES[type].name + "  " + timeLeft.toFixed(1) + "s", 16, y);
             y += 24;
         }
+    }
+    if (player.hasShield) {
+        ctx.fillStyle = POWERUP_TYPES.shield.color;
+        ctx.fillText("SHIELD  (blocks next hit)", 16, y);
     }
     ctx.font = "20px Arial";
 
@@ -1519,6 +1594,50 @@ function drawLevelUp() {
     });
 }
 
+function drawPause() {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    drawCenteredText("PAUSED", canvas.height / 2 - 110, "bold 48px Arial", "#ffffff");
+
+    // Butonlar (fare üstündeyse parlak)
+    const hovered = getPauseButtonAt(mouse.x, mouse.y);
+
+    PAUSE_BUTTONS.forEach((button, i) => {
+        const r = getPauseButtonRect(i);
+
+        ctx.fillStyle = i === hovered ? "#263238" : "#1b1f24";
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+        ctx.strokeStyle = i === hovered ? "#4fc3f7" : "#4b5563";
+        ctx.lineWidth = i === hovered ? 3 : 2;
+        ctx.strokeRect(r.x, r.y, r.w, r.h);
+
+        ctx.font = "20px Arial";
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(button.label, r.x + r.w / 2, r.y + r.h / 2);
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
+    });
+
+    // Şu ana kadar alınan yükseltmeler
+    const owned = UPGRADES
+        .filter((u) => upgradeLevels[u.id])
+        .map((u) => u.name + " " + upgradeLevels[u.id]);
+
+    const lastButton = getPauseButtonRect(PAUSE_BUTTONS.length - 1);
+    const infoY = lastButton.y + lastButton.h + 40;
+
+    ctx.font = "16px Arial";
+    ctx.fillStyle = "#9ca3af";
+    ctx.textAlign = "center";
+    ctx.fillText("Level " + level + "   •   Sound: " + (muted ? "off" : "on") + " (M)", canvas.width / 2, infoY);
+    ctx.fillStyle = "#4dd0e1";
+    drawWrappedText(owned.length ? "Upgrades: " + owned.join(", ") : "No upgrades yet", canvas.width / 2, infoY + 26, 640, 20);
+    ctx.textAlign = "left";
+}
+
 function drawMenu() {
     ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1526,7 +1645,7 @@ function drawMenu() {
     const cy = canvas.height / 2;
     drawCenteredText("TOP-DOWN SHOOTER", cy - 60, "bold 56px Arial", "#4fc3f7");
     drawCenteredText("Click or press Enter to start", cy + 10, "24px Arial", "#ffffff");
-    drawCenteredText("WASD: move   •   Mouse: aim, hold to shoot   •   M: sound", cy + 50, "18px Arial", "#9ca3af");
+    drawCenteredText("WASD: move   •   Mouse: aim, hold to shoot   •   Esc: pause   •   M: sound", cy + 50, "18px Arial", "#9ca3af");
     drawCenteredText("High score: " + highScore, cy + 100, "20px Arial", "#ffd54f");
 }
 

@@ -29,7 +29,9 @@ Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz dü�
 | `1` `2` `3` / Tıklama | Seviye atlayınca yükseltme seçme |
 | `Enter` / Tıklama | Oyunu başlatma |
 | `R` | Oyun bitince tekrar oynama |
-| `Esc` | Menüye dönme |
+| `Esc` / `P` | Duraklatma / devam etme |
+| `R` / `Q` (duraklatılmışken) | Yeniden başlatma / menüye çıkma |
+| `Esc` (oyun bitince) | Menüye dönme |
 | `M` | Sesi açma / kapatma |
 
 ## Özellikler
@@ -46,7 +48,7 @@ Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz dü�
 - **Oyun hissi efektleri**: parçacık patlamaları, ekran sarsıntısı, hasar flaşı ve yükselen yazılar
 - **Prosedürel ses efektleri**, Web Audio API ile gerçek zamanlı üretilir, ses dosyası kullanılmaz
 - **Kalıcı en yüksek skor**, tarayıcıda `localStorage` ile saklanır
-- **Oyun ekranları**: başlangıç menüsü, oyun ve oyun bitti ekranları
+- **Oyun ekranları**: başlangıç menüsü, duraklatma menüsü, seviye atlama ve oyun bitti ekranları
 
 ### Düşmanlar
 
@@ -80,7 +82,7 @@ Her 60 saniyede bir, önce bir uyarıyla taçlı dev bir canavar gelir. Yavaşç
 | 🟢 `+` Health | 1 can yeniler |
 | 🟡 `R` Rapid Fire | 6 saniye boyunca 2.5 kat hızlı ateş |
 | 🔵 `3` Triple Shot | 8 saniye boyunca aynı anda üç mermi |
-| 🟣 `S` Shield | 6 saniye boyunca değen düşmanlar yok olur |
+| 🟣 `S` Shield | Alacağın bir sonraki hasarı engeller |
 
 ## Yerelde Çalıştırma
 

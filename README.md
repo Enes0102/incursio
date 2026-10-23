@@ -24,6 +24,7 @@ Survive as long as you can against endless waves of enemies that get faster, tou
 | `W` `A` `S` `D` | Move |
 | Mouse | Aim |
 | Left click (hold) | Shoot |
+| `Space` | Dash (after unlocking the Dash upgrade) |
 | `1` `2` `3` / Click | Choose an upgrade on level up |
 | `Enter` / Click | Start game |
 | `R` | Play again after game over |
@@ -34,7 +35,7 @@ Survive as long as you can against endless waves of enemies that get faster, tou
 
 ## Features
 
-- **XP and level-up system** — defeated enemies drop XP gems; every level lets you pick one of three random upgrades
+- **XP and level-up system** — defeated enemies drop glowing XP gems; every level lets you pick one of three random upgrades from a pool of 17
 - **Boss fights** every 60 seconds, each boss tougher than the last
 - **Large fenced meadow** (about 3×3 screens) surrounded by forest, with a camera that follows the player and a minimap
 - **Pixel art world**: grass with natural light and dark patches, wooden fences, trees, flowers, mushrooms, stumps, bushes and rocks
@@ -42,7 +43,8 @@ Survive as long as you can against endless waves of enemies that get faster, tou
 - **Automatic fire** with a fire-rate limit, so holding the button is as fair as clicking
 - **Three enemy types** with different size, speed and health
 - **Four power-ups** dropped by defeated enemies
-- **Dynamic difficulty** — enemies spawn faster and move quicker the longer you survive
+- **Balanced difficulty curve** — enemies grow in number, speed and health over time, arriving in groups later on, while XP rewards scale so your build can keep up
+- **Health bar** with 100 HP, damage numbers and a trailing "ghost" bar that shows how much you just lost; different enemies hit for different amounts
 - **Invincibility frames** after taking damage
 - **Pixel art sprites** with hit flashes
 - **Game feel effects**: particle explosions, screen shake, damage flash and floating text
@@ -72,14 +74,25 @@ A crowned giant appears every 60 seconds after a warning. It slowly chases you a
 | Piercing Rounds | Bullets pass through +1 enemy | 3 |
 | Swift Boots | Move 10% faster | 5 |
 | Velocity | Bullets fly 20% faster | 3 |
-| Vitality | +1 max health and heal 1 | 5 |
+| Vitality | +20 max health and heal 20 | 5 |
 | Magnet | Collect XP from farther away | 3 |
+| Regeneration | Regenerate 0.8 / 1.4 / 2 health per second | 3 |
+| Orbiting Blades | 1 / 2 / 3 shuriken blades spin around you and cut enemies | 3 |
+| Critical Hit | 10% / 20% / 30% chance to deal double damage | 3 |
+| Explosive Rounds | Enemies explode on death, damaging others nearby (can chain) | 3 |
+| Armor | Take 10% / 20% / 30% less damage | 3 |
+| Dash | Press `Space` to dash, invincible while dashing; cooldown 3 / 2.2 / 1.5 s | 3 |
+| Lifesteal | Heal 0.5 / 1 / 1.5 health per kill | 3 |
+| Frost Aura | Enemies near you are slowed by 25% / 35% / 45% (half effect on bosses) | 3 |
+| Lucky | Power-ups drop ×1.4 / ×1.8 / ×2.2 as often | 3 |
+
+Every level-up offers at least one offensive upgrade, so your damage can always keep up.
 
 ### Power-ups
 
 | Power-up | Effect |
 | --- | --- |
-| 🟢 `+` Health | Restores 1 health |
+| 🟢 `+` Health | Restores 25 health |
 | 🟡 `R` Rapid Fire | Shoots 2.5× faster for 6 seconds |
 | 🔵 `3` Triple Shot | Fires three bullets at once for 8 seconds |
 | 🟣 `S` Shield | Blocks the next hit you take |

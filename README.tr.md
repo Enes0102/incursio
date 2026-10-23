@@ -26,6 +26,7 @@ Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz dü�
 | `W` `A` `S` `D` | Hareket |
 | Fare | Nişan alma |
 | Sol tık (basılı tut) | Ateş etme |
+| `Space` | Atılma (Dash yükseltmesini alınca) |
 | `1` `2` `3` / Tıklama | Seviye atlayınca yükseltme seçme |
 | `Enter` / Tıklama | Oyunu başlatma |
 | `R` | Oyun bitince tekrar oynama |
@@ -36,7 +37,7 @@ Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz dü�
 
 ## Özellikler
 
-- **XP ve seviye sistemi**: yenilen düşmanlar XP kristali düşürür, her seviyede üç rastgele yükseltmeden birini seçersin
+- **XP ve seviye sistemi**: yenilen düşmanlar parlayan XP kristalleri düşürür, her seviyede 17 yükseltmelik havuzdan çıkan üç karttan birini seçersin
 - **Boss savaşları**: her 60 saniyede bir, her biri öncekinden güçlü
 - **Ormanla çevrili, çitli büyük bir çayır** (yaklaşık 3×3 ekran), oyuncuyu takip eden kamera ve mini harita
 - **Pixel art dünya**: doğal açık ve koyu bölgeleri olan çimen, ahşap çitler, ağaçlar, çiçekler, mantarlar, kütükler, çalılar ve taşlar
@@ -44,7 +45,8 @@ Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz dü�
 - **Otomatik ateş**, atış hızı sınırıyla: basılı tutmak da tıklamak kadar adil
 - **Üç düşman tipi**, farklı boyut, hız ve can değerleriyle
 - **Dört güçlendirme**, yenilen düşmanlardan düşer
-- **Dinamik zorluk**: hayatta kaldıkça düşmanlar daha sık doğar ve daha hızlı hareket eder
+- **Dengeli zorluk eğrisi**: düşmanların sayısı, hızı ve canı zamanla artar, ilerleyen dakikalarda gruplar halinde gelirler; verdikleri XP de artar, böylece build'in zorluğa yetişebilir
+- **Can barı**: 100 can, hasar sayıları ve az önce ne kadar can gittiğini gösteren, yavaşça eriyen "hayalet" bar; her düşman farklı miktarda hasar verir
 - **Hasar sonrası dokunulmazlık**
 - **Pixel art sprite'lar**, vurulunca beyaz yanıp sönme efektiyle
 - **Oyun hissi efektleri**: parçacık patlamaları, ekran sarsıntısı, hasar flaşı ve yükselen yazılar
@@ -74,14 +76,25 @@ Her 60 saniyede bir, önce bir uyarıyla taçlı dev bir canavar gelir. Yavaşç
 | Piercing Rounds | Mermiler +1 düşmanın içinden geçer | 3 |
 | Swift Boots | %10 daha hızlı hareket | 5 |
 | Velocity | Mermiler %20 daha hızlı uçar | 3 |
-| Vitality | +1 maksimum can ve 1 can yenileme | 5 |
+| Vitality | +20 maksimum can ve 20 can yenileme | 5 |
 | Magnet | XP'yi daha uzaktan toplama | 3 |
+| Regeneration | Saniyede 0.8 / 1.4 / 2 can yenileme | 3 |
+| Orbiting Blades | Etrafında dönen 1 / 2 / 3 shuriken düşmanları keser | 3 |
+| Critical Hit | %10 / %20 / %30 ihtimalle 2 kat hasar | 3 |
+| Explosive Rounds | Ölen düşmanlar patlayıp yakındakilere hasar verir (zincirleme olabilir) | 3 |
+| Armor | %10 / %20 / %30 daha az hasar | 3 |
+| Dash | `Space` ile atılma, atılırken dokunulmazlık; bekleme süresi 3 / 2.2 / 1.5 sn | 3 |
+| Lifesteal | Her öldürmede 0.5 / 1 / 1.5 can | 3 |
+| Frost Aura | Yakınındaki düşmanlar %25 / %35 / %45 yavaşlar (boss'a yarı etki) | 3 |
+| Lucky | Güçlendirmeler ×1.4 / ×1.8 / ×2.2 daha sık düşer | 3 |
+
+Her seviye atlamada en az bir saldırı yükseltmesi teklif edilir, böylece hasarın her zaman zorluğa yetişebilir.
 
 ### Güçlendirmeler
 
 | Güçlendirme | Etkisi |
 | --- | --- |
-| 🟢 `+` Health | 1 can yeniler |
+| 🟢 `+` Health | 25 can yeniler |
 | 🟡 `R` Rapid Fire | 6 saniye boyunca 2.5 kat hızlı ateş |
 | 🔵 `3` Triple Shot | 8 saniye boyunca aynı anda üç mermi |
 | 🟣 `S` Shield | Alacağın bir sonraki hasarı engeller |

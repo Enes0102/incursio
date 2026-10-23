@@ -27,6 +27,9 @@ const sprites = {
     powerup_rapid: loadSprite("powerup_rapid"),
     powerup_triple: loadSprite("powerup_triple"),
     powerup_shield: loadSprite("powerup_shield"),
+    xp_gem: loadSprite("xp_gem"),
+    enemy_bullet: loadSprite("enemy_bullet"),
+    boss: loadSprite("boss"),
 };
 
 // Resim yüklendi mi? Yüklenmediyse eski daireler çizilir, oyun yine çalışır
@@ -62,6 +65,14 @@ function getFlashSprite(img) {
     return img.flashVersion;
 }
 
+// Daire çizmek için kısa yardımcı (sprite yüklenmezse yedek olarak)
+function drawCircle(x, y, radius, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+}
+
 
 // =====================================================
 //  GİRDİ (KLAVYE + FARE)
@@ -72,7 +83,7 @@ window.addEventListener("keydown", (e) => {
     const key = e.key.toLowerCase();
     keys[key] = true;
     initAudio(); // tarayıcılar sesi ancak kullanıcı bir tuşa bastıktan sonra açmaya izin verir
-    handleKeyPress(key); // menü / yeniden başlama tuşları
+    handleKeyPress(key); // menü / yeniden başlama / yükseltme seçimi tuşları
 });
 
 window.addEventListener("keyup", (e) => {
@@ -89,8 +100,16 @@ canvas.addEventListener("mousemove", (e) => {
 });
 
 canvas.addEventListener("mousedown", () => {
-    mouse.down = true;
     initAudio();
+
+    // Seviye atlama ekranındaysak tıklama kart seçmek içindir, ateş etmek için değil
+    if (state === "levelup") {
+        const index = getCardIndexAt(mouse.x, mouse.y);
+        if (index >= 0) chooseUpgrade(index);
+        return;
+    }
+
+    mouse.down = true;
     if (state === "menu") startGame(); // menüdeyken tıklayınca oyun başlasın
 });
 
@@ -108,14 +127,22 @@ class Player {
         this.x = x;
         this.y = y;
         this.radius = 16;
-        this.speed = 250;
         this.angle = 0;
         this.health = 3;
-        this.maxHealth = 5; // can yenileme ile en fazla bu kadar olabilir
+        this.maxHealth = 5;
 
-        // OTOMATİK ATEŞ: iki atış arası en az bu kadar saniye
-        this.fireRate = 0.2;  // = saniyede 5 mermi
-        this.fireTimer = 0;   // bir sonraki atışa kalan süre
+        // Yükseltmelerle değişen özellikler
+        this.speed = 250;         // hareket hızı
+        this.fireRate = 0.2;      // iki atış arası saniye (= saniyede 5 mermi)
+        this.damage = 1;          // her merminin verdiği hasar
+        this.bulletSpeed = 600;   // mermi hızı
+        this.extraShots = 0;      // her atışta fazladan kaç mermi
+        this.pierce = 0;          // bir mermi kaç düşmanın içinden geçebilir
+        this.magnetRange = 90;    // XP kristallerini ne kadar uzaktan çeker
+
+        this.fireTimer = 0;       // bir sonraki atışa kalan süre
+        this.invincibleTimer = 0; // hasar aldıktan sonraki dokunulmazlık süresi
+        this.time = 0;            // yanıp sönme animasyonu için
 
         // GÜÇLENDİRMELER: her birinin kalan süresi (saniye). 0 = aktif değil
         this.powerTimers = { rapid: 0, triple: 0, shield: 0 };
@@ -143,13 +170,15 @@ class Player {
 
         this.angle = Math.atan2(mouse.y - this.y, mouse.x - this.x);
 
+        this.time += dt;
+        this.invincibleTimer = Math.max(0, this.invincibleTimer - dt);
+
         // Güçlendirme sürelerini azalt
         for (const key in this.powerTimers) {
             this.powerTimers[key] = Math.max(0, this.powerTimers[key] - dt);
         }
 
-        // OTOMATİK ATEŞ: sayaç sıfıra indiyse ve fare basılıysa ateş et
-        // Hızlı ateş aktifse bekleme süresi 2.5 kat kısalır
+        // OTOMATİK ATEŞ: hızlı ateş aktifse bekleme süresi 2.5 kat kısalır
         const currentFireRate = this.powerTimers.rapid > 0 ? this.fireRate * 0.4 : this.fireRate;
 
         this.fireTimer -= dt;
@@ -164,19 +193,28 @@ class Player {
         const bx = this.x + Math.cos(this.angle) * barrelLength;
         const by = this.y + Math.sin(this.angle) * barrelLength;
 
-        // Üçlü atış aktifse ortadakinin yanına biraz açılı iki mermi daha
-        const angles = this.powerTimers.triple > 0
-            ? [this.angle - 0.2, this.angle, this.angle + 0.2]
-            : [this.angle];
+        // Kaç mermi atılacak: 1 + yükseltmeler + (üçlü atış aktifse 2 tane daha)
+        let count = 1 + this.extraShots;
+        if (this.powerTimers.triple > 0) count += 2;
 
-        for (const angle of angles) {
-            bullets.push(new Bullet(bx, by, angle));
+        // Mermileri nişan yönünün etrafına eşit aralıklarla yay
+        const spread = 0.15; // iki mermi arası açı (radyan)
+        const startAngle = this.angle - (spread * (count - 1)) / 2;
+
+        for (let i = 0; i < count; i++) {
+            const angle = startAngle + spread * i;
+            bullets.push(new Bullet(bx, by, angle, this.bulletSpeed, this.damage, this.pierce));
         }
 
         playSound("shoot");
     }
 
     draw() {
+        // Dokunulmazken yanıp sönsün
+        if (this.invincibleTimer > 0 && Math.floor(this.time * 15) % 2 === 0) {
+            ctx.globalAlpha = 0.35;
+        }
+
         ctx.save();
         ctx.translate(this.x, this.y);
         ctx.rotate(this.angle);
@@ -188,11 +226,7 @@ class Player {
         } else {
             ctx.fillStyle = "#6b7280";
             ctx.fillRect(0, -5, this.radius + 14, 10);
-
-            ctx.fillStyle = "#4fc3f7";
-            ctx.beginPath();
-            ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
-            ctx.fill();
+            drawCircle(0, 0, this.radius, "#4fc3f7");
         }
 
         // Kalkan aktifse etrafında bir halka
@@ -205,22 +239,25 @@ class Player {
         }
 
         ctx.restore();
+        ctx.globalAlpha = 1;
     }
 }
 
 
 // =====================================================
-//  MERMİ
+//  OYUNCU MERMİSİ
 // =====================================================
 class Bullet {
-    constructor(x, y, angle) {
+    constructor(x, y, angle, speed, damage, pierce) {
         this.x = x;
         this.y = y;
         this.radius = 4;
-        this.speed = 600;
         this.angle = angle;
-        this.vx = Math.cos(angle) * this.speed;
-        this.vy = Math.sin(angle) * this.speed;
+        this.vx = Math.cos(angle) * speed;
+        this.vy = Math.sin(angle) * speed;
+        this.damage = damage;
+        this.pierce = pierce;          // kalan delme hakkı
+        this.hitEnemies = new Set();   // aynı düşmana iki kez vurmasın
         this.dead = false;
     }
 
@@ -236,13 +273,43 @@ class Bullet {
     draw() {
         if (isReady(sprites.bullet)) {
             drawSprite(sprites.bullet, this.x, this.y, this.angle);
-            return;
+        } else {
+            drawCircle(this.x, this.y, this.radius, "#ffd54f");
         }
+    }
+}
 
-        ctx.fillStyle = "#ffd54f";
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fill();
+
+// =====================================================
+//  DÜŞMAN MERMİSİ (boss atıyor)
+// =====================================================
+class EnemyBullet {
+    constructor(x, y, angle, speed) {
+        this.x = x;
+        this.y = y;
+        this.radius = 6;
+        this.vx = Math.cos(angle) * speed;
+        this.vy = Math.sin(angle) * speed;
+        this.dead = false;
+    }
+
+    update(dt) {
+        this.x += this.vx * dt;
+        this.y += this.vy * dt;
+
+        const margin = 20;
+        if (this.x < -margin || this.x > canvas.width + margin ||
+            this.y < -margin || this.y > canvas.height + margin) {
+            this.dead = true;
+        }
+    }
+
+    draw() {
+        if (isReady(sprites.enemy_bullet)) {
+            drawSprite(sprites.enemy_bullet, this.x, this.y);
+        } else {
+            drawCircle(this.x, this.y, this.radius, "#ff4081");
+        }
     }
 }
 
@@ -252,26 +319,32 @@ class Bullet {
 // =====================================================
 // Yeni bir düşman tipi eklemek için buraya bir satır eklemen yeterli
 // dropChance: ölünce güçlendirme düşürme ihtimali (0.1 = %10)
+// xp: ölünce düşürdüğü XP miktarı
 const ENEMY_TYPES = {
-    normal: { radius: 14, speed: 100, health: 1, color: "#ef5350", score: 10, dropChance: 0.08 },
-    fast:   { radius: 10, speed: 170, health: 1, color: "#ffb74d", score: 15, dropChance: 0.10 }, // küçük ve hızlı
-    tank:   { radius: 22, speed: 60,  health: 4, color: "#ab47bc", score: 30, dropChance: 0.40 }, // büyük, yavaş, dayanıklı
+    normal: { radius: 14, speed: 100, health: 1, color: "#ef5350", score: 10, dropChance: 0.08, xp: 1 },
+    fast:   { radius: 10, speed: 170, health: 1, color: "#ffb74d", score: 15, dropChance: 0.10, xp: 2 }, // küçük ve hızlı
+    tank:   { radius: 22, speed: 60,  health: 4, color: "#ab47bc", score: 30, dropChance: 0.40, xp: 5 }, // büyük, yavaş, dayanıklı
 };
 
 class Enemy {
     constructor(x, y, typeName) {
         const type = ENEMY_TYPES[typeName];
 
+        // Oyun ilerledikçe düşmanların canı da artsın (her 60 saniyede bir kat daha)
+        const healthMultiplier = 1 + Math.floor(gameTime / 60);
+
         this.x = x;
         this.y = y;
         this.radius = type.radius;
         this.speed = type.speed;
-        this.health = type.health;
-        this.maxHealth = type.health;
+        this.health = type.health * healthMultiplier;
+        this.maxHealth = this.health;
         this.color = type.color;
         this.score = type.score;
         this.dropChance = type.dropChance;
+        this.xp = type.xp;
         this.sprite = sprites["enemy_" + typeName]; // örn. sprites.enemy_tank
+        this.isBoss = false;
         this.dead = false;
 
         this.hitTimer = 0; // vurulunca kısa süre beyaz yanıp sönsün
@@ -291,8 +364,8 @@ class Enemy {
     }
 
     // Hasar al. Öldüyse true döndürür.
-    takeHit() {
-        this.health -= 1;
+    takeHit(damage) {
+        this.health -= damage;
         this.hitTimer = 0.08;
         return this.health <= 0;
     }
@@ -303,11 +376,7 @@ class Enemy {
             const img = this.hitTimer > 0 ? getFlashSprite(this.sprite) : this.sprite;
             drawSprite(img, this.x, this.y);
         } else {
-            // Vurulduysa beyaz, değilse kendi rengi
-            ctx.fillStyle = this.hitTimer > 0 ? "#ffffff" : this.color;
-            ctx.beginPath();
-            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-            ctx.fill();
+            drawCircle(this.x, this.y, this.radius, this.hitTimer > 0 ? "#ffffff" : this.color);
         }
 
         // Birden fazla canı olan düşmanların üstünde can barı
@@ -319,9 +388,261 @@ class Enemy {
             ctx.fillStyle = "#333";
             ctx.fillRect(barX, barY, barWidth, 4);
             ctx.fillStyle = "#66bb6a";
-            ctx.fillRect(barX, barY, barWidth * (this.health / this.maxHealth), 4);
+            ctx.fillRect(barX, barY, barWidth * Math.max(0, this.health / this.maxHealth), 4);
         }
     }
+}
+
+
+// =====================================================
+//  BOSS
+// =====================================================
+// Boss da düşman listesinde duruyor, böylece mermi çarpışmaları aynı kodla çalışıyor
+class Boss {
+    constructor(x, y, number) {
+        this.x = x;
+        this.y = y;
+        this.number = number;              // kaçıncı boss (her biri daha güçlü)
+        this.radius = 36;
+        this.speed = 50 + number * 5;
+        this.maxHealth = 60 + (number - 1) * 50;
+        this.health = this.maxHealth;
+        this.color = "#c62828";
+        this.score = 500 * number;
+        this.dropChance = 1;               // güçlendirme düşürmesi garanti
+        this.xp = 25 + number * 10;
+        this.sprite = sprites.boss;
+        this.isBoss = true;
+        this.dead = false;
+
+        this.hitTimer = 0;
+        this.attackTimer = 2;   // ilk saldırıdan önce 2 saniye bekle
+        this.attackCount = 0;   // saldırı tipleri sırayla değişsin diye
+    }
+
+    update(dt) {
+        // Yavaşça oyuncuya doğru gel
+        const dx = player.x - this.x;
+        const dy = player.y - this.y;
+        const distance = Math.hypot(dx, dy);
+
+        if (distance > 0) {
+            this.x += (dx / distance) * this.speed * dt;
+            this.y += (dy / distance) * this.speed * dt;
+        }
+
+        this.hitTimer -= dt;
+
+        this.attackTimer -= dt;
+        if (this.attackTimer <= 0) {
+            this.attack();
+        }
+    }
+
+    attack() {
+        const toPlayer = Math.atan2(player.y - this.y, player.x - this.x);
+
+        if (this.attackCount % 2 === 0) {
+            // SALDIRI 1: Her yöne mermi halkası
+            const count = 12 + this.number * 2;
+            const offset = Math.random() * Math.PI; // her halka biraz farklı açıda
+            for (let i = 0; i < count; i++) {
+                const angle = offset + (Math.PI * 2 * i) / count;
+                enemyBullets.push(new EnemyBullet(this.x, this.y, angle, 170));
+            }
+        } else {
+            // SALDIRI 2: Oyuncuya nişanlı yelpaze atış
+            const count = 3 + this.number;
+            const spread = 0.18;
+            const startAngle = toPlayer - (spread * (count - 1)) / 2;
+            for (let i = 0; i < count; i++) {
+                enemyBullets.push(new EnemyBullet(this.x, this.y, startAngle + spread * i, 260));
+            }
+        }
+
+        this.attackCount++;
+        this.attackTimer = Math.max(0.9, 1.8 - this.number * 0.15); // sonraki boss'lar daha sık saldırır
+        playSound("bossShoot");
+    }
+
+    takeHit(damage) {
+        this.health -= damage;
+        this.hitTimer = 0.06;
+        return this.health <= 0;
+    }
+
+    draw() {
+        if (isReady(this.sprite)) {
+            const img = this.hitTimer > 0 ? getFlashSprite(this.sprite) : this.sprite;
+            drawSprite(img, this.x, this.y);
+        } else {
+            drawCircle(this.x, this.y, this.radius, this.hitTimer > 0 ? "#ffffff" : this.color);
+        }
+        // Boss'un can barı ekranın üstünde, drawHUD içinde çiziliyor
+    }
+}
+
+
+// =====================================================
+//  XP KRİSTALLERİ
+// =====================================================
+class XpGem {
+    constructor(x, y, value) {
+        this.x = x;
+        this.y = y;
+        this.value = value;
+        this.radius = 6;
+        this.dead = false;
+
+        // Doğunca hafifçe etrafa saçılsın
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 40 + Math.random() * 80;
+        this.vx = Math.cos(angle) * speed;
+        this.vy = Math.sin(angle) * speed;
+    }
+
+    update(dt) {
+        const dx = player.x - this.x;
+        const dy = player.y - this.y;
+        const distance = Math.hypot(dx, dy);
+
+        if (distance < player.magnetRange) {
+            // MIKNATIS: oyuncuya yakınsa ona doğru uç, yaklaştıkça hızlan
+            const pull = 500 * (1 - distance / player.magnetRange) + 150;
+            this.vx = (dx / distance) * pull;
+            this.vy = (dy / distance) * pull;
+        } else {
+            // Değilse saçılma hızı yavaşça sönsün
+            this.vx *= 1 - 4 * dt;
+            this.vy *= 1 - 4 * dt;
+        }
+
+        this.x += this.vx * dt;
+        this.y += this.vy * dt;
+    }
+
+    draw() {
+        if (isReady(sprites.xp_gem)) {
+            drawSprite(sprites.xp_gem, this.x, this.y);
+        } else {
+            drawCircle(this.x, this.y, this.radius, "#4dd0e1");
+        }
+    }
+}
+
+// Ölen düşmanın XP'sini birkaç kristale böl
+function dropXp(enemy) {
+    let remaining = enemy.xp;
+    while (remaining > 0) {
+        const value = Math.min(remaining, enemy.isBoss ? 5 : 2);
+        xpGems.push(new XpGem(enemy.x, enemy.y, value));
+        remaining -= value;
+    }
+}
+
+
+// =====================================================
+//  SEVİYE ATLAMA VE YÜKSELTMELER
+// =====================================================
+// Yeni bir yükseltme eklemek için listeye bir satır ekle:
+// max: en fazla kaç kez alınabilir, apply: oyuncuya ne yapar
+const UPGRADES = [
+    { id: "damage",      name: "Power Shot",      desc: "+1 bullet damage",               max: 5, apply: (p) => { p.damage += 1; } },
+    { id: "firerate",    name: "Quick Trigger",   desc: "Shoot 15% faster",               max: 5, apply: (p) => { p.fireRate *= 0.85; } },
+    { id: "multishot",   name: "Multishot",       desc: "+1 bullet per shot",             max: 3, apply: (p) => { p.extraShots += 1; } },
+    { id: "pierce",      name: "Piercing Rounds", desc: "Bullets pass through +1 enemy",  max: 3, apply: (p) => { p.pierce += 1; } },
+    { id: "speed",       name: "Swift Boots",     desc: "Move 10% faster",                max: 5, apply: (p) => { p.speed *= 1.1; } },
+    { id: "bulletspeed", name: "Velocity",        desc: "Bullets fly 20% faster",         max: 3, apply: (p) => { p.bulletSpeed *= 1.2; } },
+    { id: "vitality",    name: "Vitality",        desc: "+1 max health and heal 1",       max: 5, apply: (p) => { p.maxHealth += 1; p.health = Math.min(p.maxHealth, p.health + 1); } },
+    { id: "magnet",      name: "Magnet",          desc: "Collect XP from farther away",   max: 3, apply: (p) => { p.magnetRange *= 1.5; } },
+];
+
+// Bir sonraki seviye için gereken XP: her seviyede biraz daha fazla
+function xpNeededFor(lvl) {
+    return 5 + (lvl - 1) * 7;
+}
+
+function addXp(amount) {
+    xp += amount;
+    while (xp >= xpToNext) {
+        xp -= xpToNext;
+        level++;
+        xpToNext = xpNeededFor(level);
+        pendingLevelUps++; // aynı anda birden fazla seviye atlanabilir
+    }
+}
+
+// Rastgele 3 yükseltme seç (sonuna kadar alınmış olanlar hariç)
+function rollUpgradeChoices() {
+    const available = UPGRADES.filter((u) => (upgradeLevels[u.id] || 0) < u.max);
+
+    // Listeyi karıştır (Fisher-Yates)
+    for (let i = available.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [available[i], available[j]] = [available[j], available[i]];
+    }
+
+    return available.slice(0, 3);
+}
+
+function openLevelUp() {
+    upgradeChoices = rollUpgradeChoices();
+
+    // Her şey sonuna kadar alındıysa ödül olarak can ve puan ver
+    if (upgradeChoices.length === 0) {
+        pendingLevelUps--;
+        player.health = Math.min(player.maxHealth, player.health + 1);
+        score += 100;
+        return;
+    }
+
+    state = "levelup";
+    mouse.down = false;
+    playSound("levelup");
+}
+
+function chooseUpgrade(index) {
+    const upgrade = upgradeChoices[index];
+    if (!upgrade) return;
+
+    upgrade.apply(player);
+    upgradeLevels[upgrade.id] = (upgradeLevels[upgrade.id] || 0) + 1;
+    pendingLevelUps--;
+
+    texts.push(new FloatingText(player.x, player.y - 30, upgrade.name.toUpperCase(), "#4dd0e1"));
+    spawnParticles(player.x, player.y, "#4dd0e1", 20);
+    playSound("powerup");
+
+    state = "playing";
+    mouse.down = false;
+
+    // Hâlâ bekleyen seviye varsa hemen bir sonraki seçimi aç
+    if (pendingLevelUps > 0) openLevelUp();
+}
+
+// Seviye atlama kartlarının ekrandaki konumu
+const CARD_WIDTH = 220;
+const CARD_HEIGHT = 190;
+const CARD_GAP = 30;
+
+function getCardRect(index, count) {
+    const totalWidth = count * CARD_WIDTH + (count - 1) * CARD_GAP;
+    const startX = (canvas.width - totalWidth) / 2;
+    return {
+        x: startX + index * (CARD_WIDTH + CARD_GAP),
+        y: canvas.height / 2 - CARD_HEIGHT / 2 + 30,
+        w: CARD_WIDTH,
+        h: CARD_HEIGHT,
+    };
+}
+
+// Fare hangi kartın üstünde? (yoksa -1)
+function getCardIndexAt(x, y) {
+    for (let i = 0; i < upgradeChoices.length; i++) {
+        const r = getCardRect(i, upgradeChoices.length);
+        if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return i;
+    }
+    return -1;
 }
 
 
@@ -375,7 +696,7 @@ function spawnParticles(x, y, color, count) {
 
 
 // =====================================================
-//  EFEKTLER: YÜKSELEN YAZI ("+1 CAN" gibi)
+//  EFEKTLER: YÜKSELEN YAZI ("+1 HEALTH" gibi)
 // =====================================================
 class FloatingText {
     constructor(x, y, text, color) {
@@ -450,11 +771,7 @@ class PowerUp {
             return;
         }
 
-        ctx.fillStyle = info.color;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y + bob, this.radius, 0, Math.PI * 2);
-        ctx.fill();
-
+        drawCircle(this.x, this.y + bob, this.radius, info.color);
         ctx.fillStyle = "#111111";
         ctx.font = "bold 14px Arial";
         ctx.textAlign = "center";
@@ -578,11 +895,29 @@ const SOUNDS = {
     hit:     () => playTone("triangle", 300, 150, 0.05, 0.08),
     explode: () => playNoise(0.25, 0.3),
     hurt:    () => playTone("sawtooth", 220, 60, 0.3, 0.15),
+    xp:      () => playTone("sine", 1200, 1700, 0.05, 0.03),
     powerup: () => {
         // Yükselen üç nota (do - mi - sol)
         playTone("sine", 523, 523, 0.08, 0.15, 0);
         playTone("sine", 659, 659, 0.08, 0.15, 0.08);
         playTone("sine", 784, 784, 0.12, 0.15, 0.16);
+    },
+    levelup: () => {
+        // Yükselen dört nota, bir oktav yukarı çıkıyor
+        playTone("square", 523, 523, 0.1, 0.08, 0);
+        playTone("square", 659, 659, 0.1, 0.08, 0.1);
+        playTone("square", 784, 784, 0.1, 0.08, 0.2);
+        playTone("square", 1047, 1047, 0.25, 0.08, 0.3);
+    },
+    bossWarning: () => {
+        // Alçak, iki kez çalan alarm
+        playTone("sawtooth", 140, 90, 0.5, 0.15, 0);
+        playTone("sawtooth", 140, 90, 0.5, 0.15, 0.6);
+    },
+    bossShoot: () => playTone("square", 320, 120, 0.18, 0.05),
+    bossDeath: () => {
+        playNoise(1.2, 0.5);
+        playTone("sawtooth", 300, 30, 1.4, 0.15);
     },
     gameover: () => {
         playNoise(0.6, 0.4);
@@ -614,20 +949,38 @@ function loadMuted() {
 // =====================================================
 //  OYUN DURUMU
 // =====================================================
-// state: "menu" | "playing" | "gameover"
+// state: "menu" | "playing" | "levelup" | "gameover"
 let state = "menu";
 
 let player = new Player(canvas.width / 2, canvas.height / 2);
 let bullets = [];
+let enemyBullets = [];
 let enemies = [];
 let particles = [];
 let powerUps = [];
+let xpGems = [];
 let texts = [];
 
 let score = 0;
 let gameTime = 0;
 let spawnTimer = 0;
 let spawnInterval = 1.5;
+
+// Seviye sistemi
+let level = 1;
+let xp = 0;
+let xpToNext = xpNeededFor(1);
+let pendingLevelUps = 0;   // seçim bekleyen seviye sayısı
+let upgradeChoices = [];   // ekrandaki 3 kart
+let upgradeLevels = {};    // hangi yükseltmeden kaç tane alındı
+
+// Boss sistemi
+const BOSS_INTERVAL = 60;  // kaç saniyede bir boss gelsin
+let boss = null;           // sahnedeki boss (yoksa null)
+let bossTimer = 0;         // son boss'tan beri geçen süre
+let bossCount = 0;         // şimdiye kadar kaç boss geldi
+let bossWarning = 0;       // "BOSS INCOMING" uyarısının kalan süresi
+let bossWarned = false;    // bu boss için uyarı verildi mi?
 
 let highScore = loadHighScore();
 let newRecord = false;
@@ -653,9 +1006,11 @@ function saveHighScore() {
 function startGame() {
     player = new Player(canvas.width / 2, canvas.height / 2);
     bullets = [];
+    enemyBullets = [];
     enemies = [];
     particles = [];
     powerUps = [];
+    xpGems = [];
     texts = [];
     score = 0;
     gameTime = 0;
@@ -664,11 +1019,26 @@ function startGame() {
     shakeTime = 0;
     damageFlash = 0;
     newRecord = false;
+
+    level = 1;
+    xp = 0;
+    xpToNext = xpNeededFor(1);
+    pendingLevelUps = 0;
+    upgradeChoices = [];
+    upgradeLevels = {};
+
+    boss = null;
+    bossTimer = 0;
+    bossCount = 0;
+    bossWarning = 0;
+    bossWarned = false;
+
     state = "playing";
 }
 
 function endGame() {
     state = "gameover";
+    mouse.down = false;
 
     if (score > highScore) {
         highScore = score;
@@ -686,6 +1056,10 @@ function handleKeyPress(key) {
 
     if (state === "menu" && (key === "enter" || key === " ")) {
         startGame();
+    } else if (state === "levelup") {
+        if (key === "1" || key === "2" || key === "3") {
+            chooseUpgrade(Number(key) - 1);
+        }
     } else if (state === "gameover") {
         if (key === "r") startGame();
         if (key === "escape") state = "menu";
@@ -694,7 +1068,7 @@ function handleKeyPress(key) {
 
 
 // =====================================================
-//  DÜŞMAN DOĞURMA
+//  DÜŞMAN VE BOSS DOĞURMA
 // =====================================================
 // Zamana göre hangi tip düşman doğacağını seç
 function chooseEnemyType() {
@@ -705,25 +1079,85 @@ function chooseEnemyType() {
     return "normal";
 }
 
-function spawnEnemy() {
+// Ekranın rastgele bir kenarında, biraz dışarıda bir nokta
+function randomEdgePosition(margin) {
     const side = Math.floor(Math.random() * 4);
-    const margin = 30;
-    let x, y;
 
-    if (side === 0) { x = Math.random() * canvas.width; y = -margin; }
-    else if (side === 1) { x = canvas.width + margin; y = Math.random() * canvas.height; }
-    else if (side === 2) { x = Math.random() * canvas.width; y = canvas.height + margin; }
-    else { x = -margin; y = Math.random() * canvas.height; }
+    if (side === 0) return { x: Math.random() * canvas.width, y: -margin };
+    if (side === 1) return { x: canvas.width + margin, y: Math.random() * canvas.height };
+    if (side === 2) return { x: Math.random() * canvas.width, y: canvas.height + margin };
+    return { x: -margin, y: Math.random() * canvas.height };
+}
 
-    const enemy = new Enemy(x, y, chooseEnemyType());
+function spawnEnemy() {
+    const pos = randomEdgePosition(30);
+    const enemy = new Enemy(pos.x, pos.y, chooseEnemyType());
     // Zamanla tüm düşmanlar hızlansın, ama en fazla 2 katına kadar
     enemy.speed *= Math.min(2, 1 + gameTime * 0.015);
     enemies.push(enemy);
 }
 
+function spawnBoss() {
+    bossCount++;
+    // Oyuncudan uzak taraftan, ekranın üstünden ya da altından gelsin
+    const y = player.y > canvas.height / 2 ? -50 : canvas.height + 50;
+    boss = new Boss(canvas.width / 2, y, bossCount);
+    enemies.push(boss);
+}
+
 function isColliding(a, b) {
     const distance = Math.hypot(a.x - b.x, a.y - b.y);
     return distance < a.radius + b.radius;
+}
+
+
+// =====================================================
+//  ÖLDÜRME VE HASAR
+// =====================================================
+function killEnemy(enemy) {
+    enemy.dead = true;
+    score += enemy.score;
+    dropXp(enemy);
+    maybeDropPowerUp(enemy);
+
+    if (enemy.isBoss) {
+        // Boss ölümü: büyük patlama, sarsıntı ve ekstra güçlendirme
+        spawnParticles(enemy.x, enemy.y, "#c62828", 60);
+        spawnParticles(enemy.x, enemy.y, "#ffd54f", 30);
+        shakeScreen(20, 0.8);
+        maybeDropPowerUp(enemy);
+        texts.push(new FloatingText(enemy.x, enemy.y - 50, "BOSS DEFEATED! +" + enemy.score, "#ffd54f"));
+        playSound("bossDeath");
+        boss = null;
+        bossTimer = 0;
+        bossWarned = false;
+    } else {
+        // Büyük düşman = büyük patlama
+        spawnParticles(enemy.x, enemy.y, enemy.color, 10 + enemy.radius);
+        playSound("explode");
+    }
+}
+
+// Oyuncu hasar alır. Dokunulmazsa hiçbir şey olmaz, false döner.
+function damagePlayer() {
+    if (player.invincibleTimer > 0) return false;
+
+    player.health -= 1;
+    player.invincibleTimer = 1; // 1 saniye dokunulmazlık
+
+    shakeScreen(10, 0.3);
+    damageFlash = 0.25;
+
+    if (player.health <= 0) {
+        spawnParticles(player.x, player.y, "#7a9a3a", 40);
+        shakeScreen(18, 0.5);
+        playSound("gameover");
+        endGame();
+    } else {
+        playSound("hurt");
+    }
+
+    return true;
 }
 
 
@@ -745,7 +1179,7 @@ function update(dt) {
     }
     texts = texts.filter((text) => !text.dead);
 
-    // Oyun oynanmıyorsa geri kalanı çalışmasın
+    // Oyun oynanmıyorsa (menü, seviye atlama, oyun bitti) geri kalanı dursun
     if (state !== "playing") return;
 
     player.update(dt);
@@ -753,72 +1187,101 @@ function update(dt) {
     gameTime += dt;
     spawnInterval = Math.max(0.3, 1.5 - gameTime * 0.02);
 
-    spawnTimer += dt;
+    // --- Düşman doğurma (boss varken daha yavaş) ---
+    spawnTimer += boss ? dt * 0.4 : dt;
     if (spawnTimer >= spawnInterval) {
         spawnTimer = 0;
         spawnEnemy();
     }
 
-    for (const bullet of bullets) {
-        bullet.update(dt);
-    }
+    // --- Boss zamanlayıcısı (boss sahnedeyken durur) ---
+    if (!boss) {
+        bossTimer += dt;
 
-    for (const enemy of enemies) {
-        enemy.update(dt);
+        // Gelmeden 3 saniye önce uyar
+        if (bossTimer >= BOSS_INTERVAL - 3 && !bossWarned) {
+            bossWarned = true;
+            bossWarning = 3;
+            playSound("bossWarning");
+        }
+        if (bossTimer >= BOSS_INTERVAL) {
+            spawnBoss();
+        }
     }
+    bossWarning = Math.max(0, bossWarning - dt);
 
-    // Mermi - düşman çarpışması
+    // --- Hareketler ---
+    for (const bullet of bullets) bullet.update(dt);
+    for (const bullet of enemyBullets) bullet.update(dt);
+    for (const enemy of enemies) enemy.update(dt);
+    for (const gem of xpGems) gem.update(dt);
+
+    // --- Mermi - düşman çarpışması ---
     for (const bullet of bullets) {
         for (const enemy of enemies) {
-            if (!bullet.dead && !enemy.dead && isColliding(bullet, enemy)) {
-                bullet.dead = true;
-                spawnParticles(bullet.x, bullet.y, "#ffd54f", 4); // küçük kıvılcım
+            if (bullet.dead || enemy.dead) continue;
+            if (bullet.hitEnemies.has(enemy)) continue; // bu düşmana zaten vurdu
+            if (!isColliding(bullet, enemy)) continue;
 
-                if (enemy.takeHit()) {
-                    enemy.dead = true;
-                    score += enemy.score;
-                    // Büyük düşman = büyük patlama
-                    spawnParticles(enemy.x, enemy.y, enemy.color, 10 + enemy.radius);
-                    maybeDropPowerUp(enemy);
-                    playSound("explode");
-                } else {
-                    playSound("hit"); // vurduk ama ölmedi (tanklar)
-                }
-            }
-        }
-    }
+            bullet.hitEnemies.add(enemy);
+            spawnParticles(bullet.x, bullet.y, "#ffd54f", 4); // küçük kıvılcım
 
-    // Düşman - oyuncu çarpışması
-    for (const enemy of enemies) {
-        if (!enemy.dead && isColliding(player, enemy)) {
-            enemy.dead = true;
-
-            // Kalkan aktifse hasar alma, düşman yok olsun ve puan ver
-            if (player.powerTimers.shield > 0) {
-                score += enemy.score;
-                spawnParticles(enemy.x, enemy.y, "#ce93d8", 15);
-                playSound("explode");
-                continue; // bu düşmanı geç, sıradakine bak
-            }
-
-            player.health -= 1;
-
-            spawnParticles(enemy.x, enemy.y, enemy.color, 15);
-            shakeScreen(10, 0.3);
-            damageFlash = 0.25;
-
-            if (player.health <= 0) {
-                spawnParticles(player.x, player.y, "#7a9a3a", 40);
-                shakeScreen(18, 0.5);
-                playSound("gameover");
-                endGame();
+            if (enemy.takeHit(bullet.damage)) {
+                killEnemy(enemy);
             } else {
-                playSound("hurt");
+                playSound("hit"); // vurduk ama ölmedi
+            }
+
+            // Delme hakkı varsa devam etsin, yoksa yok olsun
+            if (bullet.pierce > 0) {
+                bullet.pierce--;
+            } else {
+                bullet.dead = true;
             }
         }
     }
 
-    // Güçlendirmeleri güncelle ve oyuncu üstünden geçtiyse topla
+    // --- Düşman - oyuncu çarpışması ---
+    for (const enemy of enemies) {
+        if (enemy.dead || !isColliding(player, enemy)) continue;
+
+        // Kalkan aktifse: normal düşmanlar yok olur, boss'a bir şey olmaz, oyuncu hasar almaz
+        if (player.powerTimers.shield > 0) {
+            if (!enemy.isBoss) {
+                spawnParticles(enemy.x, enemy.y, "#ce93d8", 15);
+                killEnemy(enemy);
+            }
+            continue;
+        }
+
+        // Hasar aldıysak normal düşman da patlasın (boss patlamaz)
+        if (damagePlayer() && !enemy.isBoss) {
+            enemy.dead = true;
+            spawnParticles(enemy.x, enemy.y, enemy.color, 15);
+        }
+
+        if (state !== "playing") return; // öldüysek dur
+    }
+
+    // --- Düşman mermisi - oyuncu çarpışması ---
+    for (const bullet of enemyBullets) {
+        if (bullet.dead || !isColliding(player, bullet)) continue;
+
+        if (player.powerTimers.shield > 0) {
+            bullet.dead = true;
+            spawnParticles(bullet.x, bullet.y, "#ce93d8", 6);
+            continue;
+        }
+
+        if (damagePlayer()) {
+            bullet.dead = true;
+            spawnParticles(bullet.x, bullet.y, "#ff4081", 8);
+        }
+
+        if (state !== "playing") return;
+    }
+
+    // --- Güçlendirmeleri topla ---
     for (const powerUp of powerUps) {
         powerUp.update(dt);
 
@@ -828,9 +1291,25 @@ function update(dt) {
         }
     }
 
+    // --- XP kristallerini topla ---
+    for (const gem of xpGems) {
+        if (!gem.dead && isColliding(player, gem)) {
+            gem.dead = true;
+            addXp(gem.value);
+            playSound("xp");
+        }
+    }
+
     bullets = bullets.filter((bullet) => !bullet.dead);
+    enemyBullets = enemyBullets.filter((bullet) => !bullet.dead);
     enemies = enemies.filter((enemy) => !enemy.dead);
     powerUps = powerUps.filter((powerUp) => !powerUp.dead);
+    xpGems = xpGems.filter((gem) => !gem.dead);
+
+    // Seviye atladıysak yükseltme ekranını aç
+    if (pendingLevelUps > 0) {
+        openLevelUp();
+    }
 }
 
 
@@ -853,9 +1332,11 @@ function draw() {
     }
 
     for (const particle of particles) particle.draw();
+    for (const gem of xpGems) gem.draw();
     for (const powerUp of powerUps) powerUp.draw();
     for (const bullet of bullets) bullet.draw();
     for (const enemy of enemies) enemy.draw();
+    for (const bullet of enemyBullets) bullet.draw();
     if (state !== "gameover") player.draw();
     for (const text of texts) text.draw();
 
@@ -868,9 +1349,16 @@ function draw() {
     }
 
     // --- Arayüz (sarsıntıdan etkilenmez) ---
-    if (state === "playing") drawHUD();
-    else if (state === "menu") drawMenu();
-    else drawGameOver();
+    if (state === "playing") {
+        drawHUD();
+    } else if (state === "levelup") {
+        drawHUD();
+        drawLevelUp();
+    } else if (state === "menu") {
+        drawMenu();
+    } else {
+        drawGameOver();
+    }
 
     // Ses kapalıysa sağ üstte küçük bir uyarı
     if (muted) {
@@ -888,8 +1376,12 @@ function drawHUD() {
     ctx.fillStyle = "#ffffff";
     ctx.fillText("Score: " + score, 16, 32);
 
+    // Canlar: dolu kalpler kırmızı, boşlar gri
     ctx.fillStyle = "#ef5350";
-    ctx.fillText("♥ ".repeat(player.health), 16, 60);
+    const fullHearts = "♥ ".repeat(Math.max(0, player.health));
+    ctx.fillText(fullHearts, 16, 60);
+    ctx.fillStyle = "#4b5563";
+    ctx.fillText("♥ ".repeat(Math.max(0, player.maxHealth - player.health)), 16 + ctx.measureText(fullHearts).width, 60);
 
     ctx.fillStyle = "#ffffff";
     ctx.fillText("Time: " + Math.floor(gameTime) + "s", 16, 88);
@@ -911,6 +1403,45 @@ function drawHUD() {
     ctx.fillStyle = "#9ca3af";
     ctx.fillText("Best: " + highScore, canvas.width - 16, 32);
     ctx.textAlign = "left";
+
+    // --- XP barı (ekranın en altında) ---
+    const barX = 16;
+    const barY = canvas.height - 18;
+    const barW = canvas.width - 32;
+    ctx.fillStyle = "#2c333b";
+    ctx.fillRect(barX, barY, barW, 8);
+    ctx.fillStyle = "#4dd0e1";
+    ctx.fillRect(barX, barY, barW * (xp / xpToNext), 8);
+
+    ctx.font = "bold 16px Arial";
+    ctx.fillStyle = "#4dd0e1";
+    ctx.fillText("Lv " + level, barX, barY - 8);
+
+    // --- Boss can barı (ekranın üstünde ortada) ---
+    if (boss) {
+        const bw = 400;
+        const bx = (canvas.width - bw) / 2;
+        const by = 40;
+
+        ctx.font = "bold 16px Arial";
+        ctx.fillStyle = "#ef5350";
+        ctx.textAlign = "center";
+        ctx.fillText("BOSS " + boss.number, canvas.width / 2, by - 8);
+        ctx.textAlign = "left";
+
+        ctx.fillStyle = "#2c333b";
+        ctx.fillRect(bx, by, bw, 12);
+        ctx.fillStyle = "#c62828";
+        ctx.fillRect(bx, by, bw * Math.max(0, boss.health / boss.maxHealth), 12);
+        ctx.strokeStyle = "#ffd54f";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(bx, by, bw, 12);
+    }
+
+    // --- Boss uyarısı (yanıp söner) ---
+    if (bossWarning > 0 && Math.floor(bossWarning * 4) % 2 === 0) {
+        drawCenteredText("WARNING: BOSS INCOMING", canvas.height / 2 - 120, "bold 36px Arial", "#ef5350");
+    }
 }
 
 // Ortalanmış yazı yazmak için yardımcı fonksiyon
@@ -920,6 +1451,72 @@ function drawCenteredText(text, y, size, color) {
     ctx.textAlign = "center";
     ctx.fillText(text, canvas.width / 2, y);
     ctx.textAlign = "left";
+}
+
+// Uzun yazıyı kelime kelime bölüp satırlara sığdır
+function drawWrappedText(text, centerX, y, maxWidth, lineHeight) {
+    const words = text.split(" ");
+    let line = "";
+
+    for (const word of words) {
+        const test = line ? line + " " + word : word;
+        if (ctx.measureText(test).width > maxWidth && line) {
+            ctx.fillText(line, centerX, y);
+            line = word;
+            y += lineHeight;
+        } else {
+            line = test;
+        }
+    }
+    ctx.fillText(line, centerX, y);
+}
+
+function drawLevelUp() {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    drawCenteredText("LEVEL UP!", 110, "bold 44px Arial", "#4dd0e1");
+    drawCenteredText("Choose an upgrade (click or press 1, 2, 3)", 145, "18px Arial", "#9ca3af");
+
+    const hovered = getCardIndexAt(mouse.x, mouse.y);
+
+    upgradeChoices.forEach((upgrade, i) => {
+        const r = getCardRect(i, upgradeChoices.length);
+        const cx = r.x + r.w / 2;
+        const currentLevel = upgradeLevels[upgrade.id] || 0;
+
+        // Kart arka planı ve çerçevesi (fare üstündeyse parlak)
+        ctx.fillStyle = i === hovered ? "#263238" : "#1b1f24";
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+        ctx.strokeStyle = i === hovered ? "#4dd0e1" : "#4b5563";
+        ctx.lineWidth = i === hovered ? 3 : 2;
+        ctx.strokeRect(r.x, r.y, r.w, r.h);
+
+        ctx.textAlign = "center";
+
+        // Tuş numarası
+        ctx.font = "bold 16px Arial";
+        ctx.fillStyle = "#6b7280";
+        ctx.fillText("[" + (i + 1) + "]", cx, r.y + 28);
+
+        // Yükseltme adı
+        ctx.font = "bold 20px Arial";
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(upgrade.name, cx, r.y + 66);
+
+        // Açıklama
+        ctx.font = "16px Arial";
+        ctx.fillStyle = "#d1d5db";
+        drawWrappedText(upgrade.desc, cx, r.y + 100, r.w - 30, 20);
+
+        // Seviye bilgisi
+        ctx.font = "bold 14px Arial";
+        ctx.fillStyle = "#4dd0e1";
+        const levelText = currentLevel === 0 ? "NEW" : "Lv " + currentLevel + " → " + (currentLevel + 1);
+        ctx.fillText(levelText + "  (max " + upgrade.max + ")", cx, r.y + r.h - 18);
+
+        ctx.textAlign = "left";
+    });
 }
 
 function drawMenu() {
@@ -938,16 +1535,17 @@ function drawGameOver() {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const cy = canvas.height / 2;
-    drawCenteredText("GAME OVER", cy - 50, "bold 48px Arial", "#ffffff");
-    drawCenteredText("Score: " + score, cy, "26px Arial", "#ffffff");
+    drawCenteredText("GAME OVER", cy - 60, "bold 48px Arial", "#ffffff");
+    drawCenteredText("Score: " + score, cy - 10, "26px Arial", "#ffffff");
+    drawCenteredText("Level " + level + "   •   Bosses defeated: " + Math.max(0, bossCount - (boss ? 1 : 0)), cy + 22, "18px Arial", "#9ca3af");
 
     if (newRecord) {
-        drawCenteredText("NEW HIGH SCORE!", cy + 38, "bold 24px Arial", "#ffd54f");
+        drawCenteredText("NEW HIGH SCORE!", cy + 58, "bold 24px Arial", "#ffd54f");
     } else {
-        drawCenteredText("Best: " + highScore, cy + 38, "22px Arial", "#9ca3af");
+        drawCenteredText("Best: " + highScore, cy + 58, "22px Arial", "#9ca3af");
     }
 
-    drawCenteredText("R: play again   •   Esc: menu", cy + 85, "20px Arial", "#ffffff");
+    drawCenteredText("R: play again   •   Esc: menu", cy + 100, "20px Arial", "#ffffff");
 }
 
 

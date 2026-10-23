@@ -15,7 +15,7 @@ Sıfırdan saf JavaScript ve HTML5 Canvas API ile yazıldı. Oyun motoru, kütü
 
 ## Hakkında
 
-Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz düşman dalgalarına karşı olabildiğince uzun hayatta kal. Güçlendirmeleri topla, en yüksek skorun peşine düş ve ne kadar dayanabildiğini gör.
+Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz düşman dalgalarına karşı olabildiğince uzun hayatta kal. XP toplayıp seviye atla, birikebilen yükseltmelerle kendi karakterini kur, her dakika gelen yeni bir boss'u alt et ve en yüksek skorun peşine düş.
 
 > Oyunun arayüzü İngilizcedir.
 
@@ -26,6 +26,7 @@ Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz dü�
 | `W` `A` `S` `D` | Hareket |
 | Fare | Nişan alma |
 | Sol tık (basılı tut) | Ateş etme |
+| `1` `2` `3` / Tıklama | Seviye atlayınca yükseltme seçme |
 | `Enter` / Tıklama | Oyunu başlatma |
 | `R` | Oyun bitince tekrar oynama |
 | `Esc` | Menüye dönme |
@@ -33,11 +34,15 @@ Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz dü�
 
 ## Özellikler
 
+- **XP ve seviye sistemi**: yenilen düşmanlar XP kristali düşürür, her seviyede üç rastgele yükseltmeden birini seçersin
+- **Boss savaşları**: her 60 saniyede bir, her biri öncekinden güçlü
 - **Akıcı hareket ve nişan alma**, kare hızından bağımsız fizik (delta time) ile
 - **Otomatik ateş**, atış hızı sınırıyla: basılı tutmak da tıklamak kadar adil
 - **Üç düşman tipi**, farklı boyut, hız ve can değerleriyle
 - **Dört güçlendirme**, yenilen düşmanlardan düşer
 - **Dinamik zorluk**: hayatta kaldıkça düşmanlar daha sık doğar ve daha hızlı hareket eder
+- **Hasar sonrası dokunulmazlık**
+- **Pixel art sprite'lar**, vurulunca beyaz yanıp sönme efektiyle
 - **Oyun hissi efektleri**: parçacık patlamaları, ekran sarsıntısı, hasar flaşı ve yükselen yazılar
 - **Prosedürel ses efektleri**, Web Audio API ile gerçek zamanlı üretilir, ses dosyası kullanılmaz
 - **Kalıcı en yüksek skor**, tarayıcıda `localStorage` ile saklanır
@@ -51,11 +56,28 @@ Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz dü�
 | 🟠 Hızlı | Küçük ve çevik. 15. saniyeden sonra gelir. |
 | 🟣 Tank | Büyük, yavaş ve 4 vuruşta ölür. 30. saniyeden sonra gelir ve daha sık güçlendirme düşürür. |
 
+### Boss
+
+Her 60 saniyede bir, önce bir uyarıyla taçlı dev bir canavar gelir. Yavaşça seni kovalar ve iki saldırı arasında geçiş yapar: her yöne mermi halkası ve sana nişanlı yelpaze atış. Her yeni boss'un canı daha fazladır, daha çok mermi atar ve daha sık saldırır. Onu yenmek büyük skor bonusu, bol XP ve garanti güçlendirme kazandırır.
+
+### Yükseltmeler
+
+| Yükseltme | Etkisi | Maks. |
+| --- | --- | --- |
+| Power Shot | Mermi hasarı +1 | 5 |
+| Quick Trigger | %15 daha hızlı ateş | 5 |
+| Multishot | Her atışta +1 mermi | 3 |
+| Piercing Rounds | Mermiler +1 düşmanın içinden geçer | 3 |
+| Swift Boots | %10 daha hızlı hareket | 5 |
+| Velocity | Mermiler %20 daha hızlı uçar | 3 |
+| Vitality | +1 maksimum can ve 1 can yenileme | 5 |
+| Magnet | XP'yi daha uzaktan toplama | 3 |
+
 ### Güçlendirmeler
 
 | Güçlendirme | Etkisi |
 | --- | --- |
-| 🟢 `+` Health | 1 can yeniler (en fazla 5) |
+| 🟢 `+` Health | 1 can yeniler |
 | 🟡 `R` Rapid Fire | 6 saniye boyunca 2.5 kat hızlı ateş |
 | 🔵 `3` Triple Shot | 8 saniye boyunca aynı anda üç mermi |
 | 🟣 `S` Shield | 6 saniye boyunca değen düşmanlar yok olur |

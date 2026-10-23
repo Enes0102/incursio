@@ -17,7 +17,7 @@ Sıfırdan saf JavaScript ve HTML5 Canvas API ile yazıldı. Oyun motoru, kütü
 
 Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz düşman dalgalarına karşı olabildiğince uzun hayatta kal. XP toplayıp seviye atla, birikebilen yükseltmelerle kendi karakterini kur, her dakika gelen yeni bir boss'u alt et ve en yüksek skorun peşine düş.
 
-> Oyunun arayüzü İngilizcedir.
+> Oyun Türkçe ve İngilizce oynanabilir, ana menünün sağ üstündeki bayraklardan dili seçebilirsin.
 
 ## Kontroller
 
@@ -26,6 +26,7 @@ Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz dü�
 | `W` `A` `S` `D` | Hareket |
 | Fare | Nişan alma |
 | Sol tık (basılı tut) | Ateş etme |
+| `F` | Otomatik ateşi açma / kapatma (varsayılan: açık) |
 | `Space` | Atılma (Dash yükseltmesini alınca) |
 | `1` `2` `3` / Tıklama | Seviye atlayınca yükseltme seçme |
 | `Enter` / Tıklama | Oyunu başlatma |
@@ -43,7 +44,7 @@ Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz dü�
 - **Pixel art dünya**: doğal açık ve koyu bölgeleri olan çimen, ahşap çitler, ağaçlar, çiçekler, mantarlar, kütükler, çalılar ve taşlar
 - **Akıcı hareket ve nişan alma**, kare hızından bağımsız fizik (delta time) ile
 - **Otomatik ateş**, atış hızı sınırıyla: basılı tutmak da tıklamak kadar adil
-- **Üç düşman tipi**, farklı boyut, hız ve can değerleriyle
+- **Beş düşman tipi ve elite varyantları**, uzaktan saldıran ve hücum eden düşmanlar dahil
 - **Dört güçlendirme**, yenilen düşmanlardan düşer
 - **Dengeli zorluk eğrisi**: düşmanların sayısı, hızı ve canı zamanla artar, ilerleyen dakikalarda gruplar halinde gelirler; verdikleri XP de artar, böylece build'in zorluğa yetişebilir
 - **Can barı**: 100 can, hasar sayıları ve az önce ne kadar can gittiğini gösteren, yavaşça eriyen "hayalet" bar; her düşman farklı miktarda hasar verir
@@ -53,6 +54,8 @@ Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz dü�
 - **Prosedürel ses efektleri**, Web Audio API ile gerçek zamanlı üretilir, ses dosyası kullanılmaz
 - **Kalıcı en yüksek skor**, tarayıcıda `localStorage` ile saklanır
 - **Oyun ekranları**: başlangıç menüsü, duraklatma menüsü, seviye atlama ve oyun bitti ekranları
+- **Türkçe ve İngilizce**: ana menüdeki bayraklara tıklayarak dil değiştirme
+- **Otomatik ateş**: fareye basılı tutmadan imlecin yönüne ateş eder (`F` ile aç/kapat)
 
 ### Düşmanlar
 
@@ -61,32 +64,37 @@ Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz dü�
 | 🔴 Normal | Standart düşman. Baştan itibaren gelir. |
 | 🟠 Hızlı | Küçük ve çevik. 15. saniyeden sonra gelir. |
 | 🟣 Tank | Büyük, yavaş ve 4 vuruşta ölür. 30. saniyeden sonra gelir ve daha sık güçlendirme düşürür. |
+| 🟡 Spitter | Mesafesini korur ve uzaktan zehir tükürür. 5:00'ten sonra gelir. |
+| 🔴 Charger | Durur, gideceği yolu kırmızı çizgiyle gösterir, sonra çok hızlı hücum eder. 7:00'den sonra gelir. |
+| ✨ Elite | 8:00'den sonra her düşman altın parlayan bir elite olarak gelebilir: daha büyük, 3 kat can, 1.5 kat hasar, 3 kat ödül. %5 ile başlar ve her dakika artar. |
+
+Bütün düşman hasarları her dakika %5 artar; yani her şeyi sonuna kadar almış bir build bile hareket etmek zorunda.
 
 ### Boss
 
-Her 60 saniyede bir, önce bir uyarıyla taçlı dev bir canavar gelir. Yavaşça seni kovalar ve iki saldırı arasında geçiş yapar: her yöne mermi halkası ve sana nişanlı yelpaze atış. Her yeni boss'un canı daha fazladır, daha çok mermi atar ve daha sık saldırır. Onu yenmek büyük skor bonusu, bol XP ve garanti güçlendirme kazandırır.
+Her 60 saniyede bir, önce bir uyarıyla taçlı dev bir canavar gelir. Yavaşça seni kovalar ve iki saldırı arasında geçiş yapar: her yöne mermi halkası ve sana nişanlı yelpaze atış. Her yeni boss'un canı daha fazladır (zamanla da artar), daha çok mermi atar ve daha sık saldırır. 3. boss'tan itibaren dönen bir sarmal mermi yağmuru, 5. boss'tan itibaren de minyon çağırma saldırısı eklenir. Onu yenmek büyük skor bonusu, bol XP ve garanti güçlendirme kazandırır.
 
 ### Yükseltmeler
 
 | Yükseltme | Etkisi | Maks. |
 | --- | --- | --- |
-| Power Shot | Mermi hasarı +1 | 5 |
-| Quick Trigger | %15 daha hızlı ateş | 5 |
-| Multishot | Her atışta +1 mermi | 3 |
-| Piercing Rounds | Mermiler +1 düşmanın içinden geçer | 3 |
-| Swift Boots | %10 daha hızlı hareket | 5 |
-| Velocity | Mermiler %20 daha hızlı uçar | 3 |
-| Vitality | +20 maksimum can ve 20 can yenileme | 5 |
-| Magnet | XP'yi daha uzaktan toplama | 3 |
-| Regeneration | Saniyede 0.8 / 1.4 / 2 can yenileme | 3 |
-| Orbiting Blades | Etrafında dönen 1 / 2 / 3 shuriken düşmanları keser | 3 |
-| Critical Hit | %10 / %20 / %30 ihtimalle 2 kat hasar | 3 |
-| Explosive Rounds | Ölen düşmanlar patlayıp yakındakilere hasar verir (zincirleme olabilir) | 3 |
-| Armor | %10 / %20 / %30 daha az hasar | 3 |
-| Dash | `Space` ile atılma, atılırken dokunulmazlık; bekleme süresi 3 / 2.2 / 1.5 sn | 3 |
-| Lifesteal | Her öldürmede 0.5 / 1 / 1.5 can | 3 |
-| Frost Aura | Yakınındaki düşmanlar %25 / %35 / %45 yavaşlar (boss'a yarı etki) | 3 |
-| Lucky | Güçlendirmeler ×1.4 / ×1.8 / ×2.2 daha sık düşer | 3 |
+| Güçlü Atış (Power Shot) | Mermi hasarı +1 | 5 |
+| Hızlı Tetik (Quick Trigger) | %15 daha hızlı ateş | 5 |
+| Çoklu Atış (Multishot) | Her atışta +1 mermi | 3 |
+| Delici Mermi (Piercing Rounds) | Mermiler +1 düşmanın içinden geçer | 3 |
+| Çevik Botlar (Swift Boots) | %10 daha hızlı hareket | 5 |
+| Mermi Hızı (Velocity) | Mermiler %20 daha hızlı uçar | 3 |
+| Dayanıklılık (Vitality) | +20 maksimum can ve 20 can yenileme | 5 |
+| Mıknatıs (Magnet) | XP'yi daha uzaktan toplama | 3 |
+| Yenilenme (Regeneration) | Saniyede 0.8 / 1.4 / 2 can yenileme | 3 |
+| Dönen Bıçaklar (Orbiting Blades) | Etrafında dönen 1 / 2 / 3 shuriken düşmanları keser | 3 |
+| Kritik Vuruş (Critical Hit) | %10 / %20 / %30 ihtimalle 2 kat hasar | 3 |
+| Patlayıcı Mermi (Explosive Rounds) | Ölen düşmanlar patlayıp yakındakilere hasar verir (zincirleme olabilir) | 3 |
+| Zırh (Armor) | %10 / %20 / %30 daha az hasar | 3 |
+| Atılma (Dash) | `Space` ile atılma, atılırken dokunulmazlık; bekleme süresi 3 / 2.2 / 1.5 sn | 3 |
+| Can Çalma (Lifesteal) | Her öldürmede 0.5 / 1 / 1.5 can | 3 |
+| Buz Aurası (Frost Aura) | Yakınındaki düşmanlar %25 / %35 / %45 yavaşlar (boss'a yarı etki) | 3 |
+| Şans (Lucky) | Güçlendirmeler ×1.4 / ×1.8 / ×2.2 daha sık düşer | 3 |
 
 Her seviye atlamada en az bir saldırı yükseltmesi teklif edilir, böylece hasarın her zaman zorluğa yetişebilir.
 

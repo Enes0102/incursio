@@ -24,6 +24,7 @@ Survive as long as you can against endless waves of enemies that get faster, tou
 | `W` `A` `S` `D` | Move |
 | Mouse | Aim |
 | Left click (hold) | Shoot |
+| `F` | Toggle autofire (on by default) |
 | `Space` | Dash (after unlocking the Dash upgrade) |
 | `1` `2` `3` / Click | Choose an upgrade on level up |
 | `Enter` / Click | Start game |
@@ -41,7 +42,7 @@ Survive as long as you can against endless waves of enemies that get faster, tou
 - **Pixel art world**: grass with natural light and dark patches, wooden fences, trees, flowers, mushrooms, stumps, bushes and rocks
 - **Smooth movement and aiming** with frame-rate independent physics (delta time)
 - **Automatic fire** with a fire-rate limit, so holding the button is as fair as clicking
-- **Three enemy types** with different size, speed and health
+- **Five enemy types plus elite variants**, including ranged and charging enemies
 - **Four power-ups** dropped by defeated enemies
 - **Balanced difficulty curve** — enemies grow in number, speed and health over time, arriving in groups later on, while XP rewards scale so your build can keep up
 - **Health bar** with 100 HP, damage numbers and a trailing "ghost" bar that shows how much you just lost; different enemies hit for different amounts
@@ -51,6 +52,8 @@ Survive as long as you can against endless waves of enemies that get faster, tou
 - **Procedural sound effects** generated in real time with the Web Audio API — no audio files
 - **Persistent high score** saved in the browser with `localStorage`
 - **Game states**: start menu, pause menu, level-up and game over screens
+- **English and Turkish** — switch languages by clicking the flags on the main menu
+- **Autofire** — shoots toward your cursor without holding the mouse (toggle with `F`)
 
 ### Enemies
 
@@ -59,10 +62,15 @@ Survive as long as you can against endless waves of enemies that get faster, tou
 | 🔴 Normal | The standard enemy. Appears from the start. |
 | 🟠 Fast | Small and quick. Appears after 15 seconds. |
 | 🟣 Tank | Big, slow and takes 4 hits. Appears after 30 seconds and drops power-ups more often. |
+| 🟡 Spitter | Keeps its distance and spits poison from range. Appears after 5:00. |
+| 🔴 Charger | Stops, telegraphs its path with a red line, then charges at high speed. Appears after 7:00. |
+| ✨ Elite | Any enemy can spawn as a golden elite after 8:00: bigger, 3× health, 1.5× damage, 3× rewards. Starts at 5% and grows every minute. |
+
+All enemy damage increases by 5% every minute, so a maxed-out build still has to keep moving.
 
 ### Boss
 
-A crowned giant appears every 60 seconds after a warning. It slowly chases you and alternates between two attacks: a ring of bullets in every direction and an aimed spread shot. Each new boss has more health, fires more bullets and attacks more often. Defeating it gives a big score bonus, lots of XP and guaranteed power-ups.
+A crowned giant appears every 60 seconds after a warning. It slowly chases you and alternates between two attacks: a ring of bullets in every direction and an aimed spread shot. Each new boss has more health (also scaling with time), fires more bullets and attacks more often. From the 3rd boss on it adds a spinning spiral barrage, and from the 5th it summons minions. Defeating it gives a big score bonus, lots of XP and guaranteed power-ups.
 
 ### Upgrades
 

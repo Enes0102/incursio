@@ -32,6 +32,8 @@ const sprites = {
     enemy_bullet: loadSprite("enemy_bullet"),
     boss: loadSprite("boss"),
     blade: loadSprite("blade"),
+    enemy_spitter: loadSprite("enemy_spitter"),
+    enemy_charger: loadSprite("enemy_charger"),
 };
 
 // Resim yüklendi mi? Yüklenmediyse eski daireler çizilir, oyun yine çalışır
@@ -40,9 +42,9 @@ function isReady(img) {
 }
 
 // Sprite'ı (x, y) merkezli, istenirse döndürerek çiz
-function drawSprite(img, x, y, angle = 0) {
-    const w = (img.naturalWidth || img.width) * SPRITE_SCALE;
-    const h = (img.naturalHeight || img.height) * SPRITE_SCALE;
+function drawSprite(img, x, y, angle = 0, scale = 1) {
+    const w = (img.naturalWidth || img.width) * SPRITE_SCALE * scale;
+    const h = (img.naturalHeight || img.height) * SPRITE_SCALE * scale;
 
     ctx.save();
     ctx.translate(x, y);
@@ -69,8 +71,9 @@ function getFlashSprite(img) {
 
 // Sprite'ın etrafına 1 piksel kalın koyu kontur ekle (bir kez üretilip saklanır).
 // Düşmanların çimenden net ayrılmasını sağlıyor.
-function getOutlinedSprite(img) {
-    if (!img.outlinedVersion) {
+function getOutlinedSprite(img, color = "#0b0b0f") {
+    const cacheKey = "outlined_" + color;
+    if (!img[cacheKey]) {
         const w = img.naturalWidth || img.width;
         const h = img.naturalHeight || img.height;
 
@@ -81,7 +84,7 @@ function getOutlinedSprite(img) {
         const sg = silhouette.getContext("2d");
         sg.drawImage(img, 0, 0);
         sg.globalCompositeOperation = "source-in";
-        sg.fillStyle = "#0b0b0f";
+        sg.fillStyle = color;
         sg.fillRect(0, 0, w, h);
 
         // Siluet dört yöne 1 piksel kaydırılarak çizilir, üstüne sprite'ın kendisi
@@ -94,9 +97,9 @@ function getOutlinedSprite(img) {
         g.drawImage(silhouette, 0, 1);
         g.drawImage(silhouette, 2, 1);
         g.drawImage(img, 1, 1);
-        img.outlinedVersion = c;
+        img[cacheKey] = c;
     }
-    return img.outlinedVersion;
+    return img[cacheKey];
 }
 
 // Frost Aura'daki düşmanlar için buz mavisi tonlu kopya
@@ -434,6 +437,15 @@ canvas.addEventListener("mousedown", () => {
         return;
     }
 
+    // Menüde bayrağa tıklandıysa dili değiştir, oyunu başlatma
+    if (state === "menu") {
+        const flag = getFlagAt(mouse.x, mouse.y);
+        if (flag >= 0) {
+            setLanguage(FLAG_LANGS[flag]);
+            return;
+        }
+    }
+
     mouse.down = true;
     if (state === "menu") startGame(); // menüdeyken tıklayınca oyun başlasın
 });
@@ -591,7 +603,7 @@ class Player {
         const currentFireRate = this.powerTimers.rapid > 0 ? this.fireRate * 0.4 : this.fireRate;
 
         this.fireTimer -= dt;
-        if (mouse.down && this.fireTimer <= 0) {
+        if ((mouse.down || autofire) && this.fireTimer <= 0) {
             this.shoot();
             this.fireTimer = currentFireRate;
         }
@@ -614,7 +626,8 @@ class Player {
             const angle = startAngle + spread * i;
             // Critical Hit: her mermi şansına göre 2 kat hasarlı olabilir
             const crit = Math.random() < this.critChance;
-            const damage = crit ? this.damage * 2 : this.damage;
+            const base = getPlayerDamage();
+            const damage = crit ? base * 2 : base;
             const bullet = new Bullet(bx, by, angle, this.bulletSpeed, damage, this.pierce);
             bullet.crit = crit;
             bullets.push(bullet);
@@ -742,9 +755,10 @@ class Bullet {
 //  DÜŞMAN MERMİSİ (boss atıyor)
 // =====================================================
 class EnemyBullet {
-    constructor(x, y, angle, speed) {
+    constructor(x, y, angle, speed, damage = ENEMY_BULLET_DAMAGE) {
         this.x = x;
         this.y = y;
+        this.damage = damage;
         this.radius = 6;
         this.vx = Math.cos(angle) * speed;
         this.vy = Math.sin(angle) * speed;
@@ -785,7 +799,56 @@ const ENEMY_TYPES = {
     normal: { radius: 14, speed: 100, health: 1, color: "#ef5350", score: 10, dropChance: 0.08, xp: 1, hopSpeed: 8,  hopHeight: 4, damage: 20 },
     fast:   { radius: 10, speed: 170, health: 1, color: "#ffb74d", score: 15, dropChance: 0.10, xp: 2, hopSpeed: 13, hopHeight: 3, damage: 15 }, // küçük ve hızlı
     tank:   { radius: 22, speed: 60,  health: 4, color: "#ab47bc", score: 30, dropChance: 0.40, xp: 5, hopSpeed: 5,  hopHeight: 3, damage: 30 }, // büyük, yavaş, dayanıklı
+
+    // --- Geç oyun düşmanları ---
+    // behavior: "ranged" = uzakta durup ateş eder, "charge" = hedef alıp hücum eder (yoksa düz kovalar)
+    spitter: { radius: 14, speed: 90, health: 2, color: "#fbc02d", score: 25, dropChance: 0.12, xp: 3, hopSpeed: 6, hopHeight: 3, damage: 15, behavior: "ranged" },
+    charger: { radius: 16, speed: 85, health: 5, color: "#b71c1c", score: 35, dropChance: 0.15, xp: 4, hopSpeed: 7, hopHeight: 3, damage: 35, behavior: "charge" },
 };
+
+// Yeni düşmanların ayarları
+const SPITTER_START = 300;        // 5:00'ten sonra gelmeye başlar
+const SPITTER_RANGE = 260;        // oyuncuya bu mesafede durmaya çalışır
+const SPITTER_FIRE_RATE = 2.4;    // kaç saniyede bir tükürür
+const SPITTER_BULLET_SPEED = 230;
+const SPITTER_DAMAGE = 15;
+
+const CHARGER_START = 420;        // 7:00'den sonra gelmeye başlar
+const CHARGER_TRIGGER = 260;      // bu kadar yaklaşınca hücuma hazırlanır
+const CHARGER_WINDUP = 0.65;      // hücumdan önce titreyip hedef gösterme süresi
+const CHARGER_SPEED = 560;        // hücum hızı
+const CHARGER_TIME = 0.55;        // hücum süresi
+const CHARGER_REST = 0.9;         // hücumdan sonra dinlenme
+
+const ELITE_START = 480;          // 8:00'den sonra elite düşmanlar gelebilir
+const ELITE_CHANCE_START = 0.05;  // başta %5
+const ELITE_CHANCE_PER_MIN = 0.01; // her dakika +%1
+const ELITE_CHANCE_MAX = 0.25;
+
+// Düşman hasarı her dakika %5 artar (çarpma, mermi, tükürük, boss)
+const DAMAGE_RAMP_PER_MIN = 0.05;
+
+function getDamageScale() {
+    return 1 + DAMAGE_RAMP_PER_MIN * (gameTime / 60);
+}
+
+function getEliteChance() {
+    if (gameTime < ELITE_START) return 0;
+    return Math.min(ELITE_CHANCE_MAX, ELITE_CHANCE_START + ELITE_CHANCE_PER_MIN * (gameTime - ELITE_START) / 60);
+}
+
+// Düşmanı elite yap: daha büyük, 3 kat can, 1.5 kat hasar, 3 kat ödül
+function makeElite(enemy) {
+    enemy.elite = true;
+    enemy.health *= 3;
+    enemy.maxHealth = enemy.health;
+    enemy.damage = Math.round(enemy.damage * 1.5);
+    enemy.xp *= 3;
+    enemy.score *= 3;
+    enemy.dropChance *= 2;
+    enemy.radius *= 1.3;
+    enemy.scale = 1.3;
+}
 
 const BOSS_CONTACT_DAMAGE = 30;  // boss'a çarpınca
 const ENEMY_BULLET_DAMAGE = 20;  // boss mermisi değince
@@ -809,7 +872,20 @@ class Enemy {
         this.xp = Math.max(1, Math.round(type.xp * getXpScale()));
         this.damage = type.damage;
         this.sprite = sprites["enemy_" + typeName]; // örn. sprites.enemy_tank
+        this.behavior = type.behavior || "chase";
+        this.elite = false;
+        this.scale = 1;
         this.isBoss = false;
+
+        // Spitter: tükürme zamanlayıcısı ve hangi yöne yan yan kayacağı
+        this.shootTimer = 1 + Math.random() * SPITTER_FIRE_RATE;
+        this.strafeDir = Math.random() < 0.5 ? -1 : 1;
+
+        // Charger: "chase" → "windup" → "charging" → "rest" → "chase"
+        this.chargeState = "chase";
+        this.chargeTimer = 0;
+        this.chargeDirX = 0;
+        this.chargeDirY = 0;
         this.dead = false;
 
         this.hitTimer = 0; // vurulunca kısa süre beyaz yanıp sönsün
@@ -828,16 +904,82 @@ class Enemy {
         // Frost Aura içindeyse yavaşlar
         const slow = getFrostSlow(this, distance);
         this.frozen = slow > 0;
+        const speed = this.speed * (1 - slow);
 
-        if (distance > 0) {
-            this.x += (dx / distance) * this.speed * (1 - slow) * dt;
-            this.y += (dy / distance) * this.speed * (1 - slow) * dt;
-        }
+        if (this.behavior === "ranged") this.updateSpitter(dt, dx, dy, distance, speed);
+        else if (this.behavior === "charge") this.updateCharger(dt, dx, dy, distance, speed, slow);
+        else this.moveToward(dx, dy, distance, speed, dt);
 
         this.hitTimer -= dt;
         this.bladeHitTimer = Math.max(0, (this.bladeHitTimer || 0) - dt);
         this.time += dt * (1 - slow);
         clampToWorld(this);
+    }
+
+    // Oyuncuya doğru (speed eksiyse ondan uzağa) yürü
+    moveToward(dx, dy, distance, speed, dt) {
+        if (distance > 0) {
+            this.x += (dx / distance) * speed * dt;
+            this.y += (dy / distance) * speed * dt;
+        }
+    }
+
+    // SPITTER: belli bir mesafede durur, yan yan kayar ve uzaktan tükürür
+    updateSpitter(dt, dx, dy, distance, speed) {
+        if (distance > SPITTER_RANGE + 40) {
+            this.moveToward(dx, dy, distance, speed, dt);          // yaklaş
+        } else if (distance < SPITTER_RANGE - 60) {
+            this.moveToward(dx, dy, distance, -speed, dt);         // çok yakın: geri çekil
+        } else if (distance > 0) {
+            this.x += (-dy / distance) * speed * 0.4 * this.strafeDir * dt; // yan yan kay
+            this.y += (dx / distance) * speed * 0.4 * this.strafeDir * dt;
+        }
+
+        this.shootTimer -= dt;
+        if (this.shootTimer <= 0 && distance < SPITTER_RANGE + 160) {
+            this.shootTimer = SPITTER_FIRE_RATE * (0.85 + Math.random() * 0.3);
+            const angle = Math.atan2(dy, dx);
+            const damage = SPITTER_DAMAGE * (this.elite ? 1.5 : 1);
+            enemyBullets.push(new EnemyBullet(this.x, this.y, angle, SPITTER_BULLET_SPEED, damage));
+            if (this.elite) {
+                // Elite spitter iki yana da tükürür
+                enemyBullets.push(new EnemyBullet(this.x, this.y, angle - 0.25, SPITTER_BULLET_SPEED, damage));
+                enemyBullets.push(new EnemyBullet(this.x, this.y, angle + 0.25, SPITTER_BULLET_SPEED, damage));
+            }
+            playSound("spit");
+        }
+    }
+
+    // CHARGER: yaklaşınca durur, titreyip hedef gösterir, sonra o yöne çok hızlı hücum eder
+    updateCharger(dt, dx, dy, distance, speed, slow) {
+        if (this.chargeState === "windup") {
+            this.chargeTimer -= dt;
+            if (this.chargeTimer <= 0) {
+                this.chargeState = "charging";
+                this.chargeTimer = CHARGER_TIME;
+                playSound("charge");
+            }
+        } else if (this.chargeState === "charging") {
+            this.x += this.chargeDirX * CHARGER_SPEED * (1 - slow) * dt;
+            this.y += this.chargeDirY * CHARGER_SPEED * (1 - slow) * dt;
+            if (Math.random() < 0.5) spawnParticles(this.x, this.y + this.radius * 0.8, "#a1887f", 1); // toz
+            this.chargeTimer -= dt;
+            if (this.chargeTimer <= 0) {
+                this.chargeState = "rest";
+                this.chargeTimer = CHARGER_REST;
+            }
+        } else if (this.chargeState === "rest") {
+            this.chargeTimer -= dt;
+            if (this.chargeTimer <= 0) this.chargeState = "chase";
+        } else {
+            this.moveToward(dx, dy, distance, speed, dt);
+            if (distance < CHARGER_TRIGGER && distance > 0) {
+                this.chargeState = "windup";
+                this.chargeTimer = CHARGER_WINDUP;
+                this.chargeDirX = dx / distance;  // hücum yönü şimdiden kilitlenir
+                this.chargeDirY = dy / distance;
+            }
+        }
     }
 
     // Hasar al. Öldüyse true döndürür.
@@ -848,6 +990,20 @@ class Enemy {
     }
 
     draw() {
+        // Charger hücuma hazırlanırken gideceği yolu kırmızı çizgiyle gösterir
+        if (this.chargeState === "windup") {
+            const length = CHARGER_SPEED * CHARGER_TIME;
+            const pulse = 0.25 + Math.abs(Math.sin(this.chargeTimer * 18)) * 0.35;
+            ctx.strokeStyle = `rgba(255, 60, 60, ${pulse})`;
+            ctx.lineWidth = this.radius * 1.4;
+            ctx.lineCap = "round";
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.x + this.chargeDirX * length, this.y + this.chargeDirY * length);
+            ctx.stroke();
+            ctx.lineCap = "butt";
+        }
+
         const hop = drawEnemyBody(this);
 
         // Birden fazla canı olan düşmanların üstünde can barı
@@ -880,13 +1036,26 @@ function drawEnemyShadow(enemy) {
 function drawEnemyBody(enemy) {
     const hop = getHop(enemy);
 
+    // Elite: altında yanıp sönen altın ışıltı
+    if (enemy.elite) {
+        ctx.globalCompositeOperation = "lighter";
+        ctx.fillStyle = `rgba(255, 200, 60, ${0.18 + Math.sin(enemy.time * 6) * 0.08})`;
+        ctx.beginPath();
+        ctx.arc(enemy.x, enemy.y - hop, enemy.radius * 1.35, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalCompositeOperation = "source-over";
+    }
+
+    // Charger hücuma hazırlanırken titrer
+    const shake = enemy.chargeState === "windup" ? (Math.random() - 0.5) * 4 : 0;
+
     if (isReady(enemy.sprite)) {
-        const outlined = getOutlinedSprite(enemy.sprite);
+        const outlined = getOutlinedSprite(enemy.sprite, enemy.elite ? "#ffd54f" : "#0b0b0f");
         // Vurulduysa beyaz kopyasını, yavaşlamışsa buzlu kopyasını, değilse normal halini çiz
         let img = outlined;
         if (enemy.hitTimer > 0) img = getFlashSprite(outlined);
         else if (enemy.frozen) img = getFrozenSprite(outlined);
-        drawSprite(img, Math.round(enemy.x), Math.round(enemy.y) - hop);
+        drawSprite(img, Math.round(enemy.x + shake), Math.round(enemy.y) - hop, 0, enemy.scale || 1);
     } else {
         drawCircle(enemy.x, enemy.y - hop, enemy.radius, enemy.hitTimer > 0 ? "#ffffff" : enemy.color);
     }
@@ -906,7 +1075,8 @@ class Boss {
         this.number = number;              // kaçıncı boss (her biri daha güçlü)
         this.radius = 36;
         this.speed = 50 + number * 5;
-        this.maxHealth = 60 + (number - 1) * 50;
+        // Can hem boss sırasıyla hem oyun süresiyle artar (geç oyunda saniyeler içinde erimesin)
+        this.maxHealth = Math.round((60 + (number - 1) * 50) * Math.pow(getEnemyScale(), 0.75));
         this.health = this.maxHealth;
         this.color = "#c62828";
         this.score = 500 * number;
@@ -923,6 +1093,16 @@ class Boss {
         this.time = 0;
         this.attackTimer = 2;   // ilk saldırıdan önce 2 saniye bekle
         this.attackCount = 0;   // saldırı tipleri sırayla değişsin diye
+
+        // Sarmal saldırı (3. boss'tan itibaren)
+        this.spiralTime = 0;
+        this.spiralAngle = 0;
+        this.spiralEmit = 0;
+
+        // Hangi saldırıları biliyor: sonraki boss'lar daha fazlasını
+        this.patterns = ["ring", "aimed"];
+        if (number >= 3) this.patterns.push("spiral");
+        if (number >= 5) this.patterns.push("summon");
     }
 
     update(dt) {
@@ -945,6 +1125,20 @@ class Boss {
         this.time += dt;
         clampToWorld(this);
 
+        // Sarmal saldırı sürüyorsa dönerek mermi saç
+        if (this.spiralTime > 0) {
+            this.spiralTime -= dt;
+            this.spiralEmit -= dt;
+            while (this.spiralEmit <= 0) {
+                this.spiralEmit += 0.07;
+                for (let k = 0; k < 3; k++) {
+                    const angle = this.spiralAngle + (Math.PI * 2 * k) / 3;
+                    enemyBullets.push(new EnemyBullet(this.x, this.y, angle, 180));
+                }
+                this.spiralAngle += 0.32;
+            }
+        }
+
         this.attackTimer -= dt;
         if (this.attackTimer <= 0) {
             this.attack();
@@ -953,8 +1147,28 @@ class Boss {
 
     attack() {
         const toPlayer = Math.atan2(player.y - this.y, player.x - this.x);
+        const pattern = this.patterns[this.attackCount % this.patterns.length];
+        let wait = Math.max(1.1, 1.8 - this.number * 0.12); // sonraki boss'lar daha sık saldırır
 
-        if (this.attackCount % 2 === 0) {
+        if (pattern === "spiral") {
+            // SALDIRI 3: Dönen üç kollu mermi sarmalı
+            this.spiralTime = 1.8;
+            this.spiralEmit = 0;
+            this.spiralAngle = Math.random() * Math.PI * 2;
+            wait = 2.4;
+        } else if (pattern === "summon") {
+            // SALDIRI 4: Etrafına minyon çağırır
+            const count = 3 + Math.floor(this.number / 3);
+            for (let i = 0; i < count; i++) {
+                const angle = (Math.PI * 2 * i) / count;
+                const minion = new Enemy(this.x + Math.cos(angle) * 70, this.y + Math.sin(angle) * 70, Math.random() < 0.5 ? "normal" : "fast");
+                if (Math.random() < getEliteChance()) makeElite(minion);
+                clampToWorld(minion);
+                enemies.push(minion);
+                spawnParticles(minion.x, minion.y, "#ce93d8", 10);
+            }
+            playSound("summon");
+        } else if (pattern === "ring") {
             // SALDIRI 1: Her yöne mermi halkası
             const count = 12 + this.number * 2;
             const offset = Math.random() * Math.PI; // her halka biraz farklı açıda
@@ -962,7 +1176,7 @@ class Boss {
                 const angle = offset + (Math.PI * 2 * i) / count;
                 enemyBullets.push(new EnemyBullet(this.x, this.y, angle, 170));
             }
-        } else {
+        } else if (pattern === "aimed") {
             // SALDIRI 2: Oyuncuya nişanlı yelpaze atış
             const count = 3 + this.number;
             const spread = 0.18;
@@ -973,8 +1187,8 @@ class Boss {
         }
 
         this.attackCount++;
-        this.attackTimer = Math.max(1.1, 1.8 - this.number * 0.12); // sonraki boss'lar daha sık saldırır
-        playSound("bossShoot");
+        this.attackTimer = wait;
+        if (pattern !== "summon") playSound("bossShoot");
     }
 
     takeHit(damage) {
@@ -1118,7 +1332,8 @@ function getFrostSlow(enemy, distance) {
     return distance < FROST_RADIUS[lvl] + enemy.radius ? FROST_SLOW[lvl] : 0;
 }
 
-// Yeni bir yükseltme eklemek için listeye bir satır ekle:
+// Not: ekranda görünen isim ve açıklamalar UPGRADE_TEXT'ten (iki dilde) geliyor; buradakiler kodu okumayı kolaylaştırmak için.
+// Yeni bir yükseltme eklemek için listeye bir satır ekle (ve UPGRADE_TEXT'e iki dilde metnini yaz):
 // max: en fazla kaç kez alınabilir, apply: oyuncuya ne yapar
 const UPGRADES = [
     { id: "damage",      name: "Power Shot",      desc: "+1 bullet damage",               max: 5, apply: (p) => { p.damage += 1; } },
@@ -1208,7 +1423,7 @@ function chooseUpgrade(index) {
     upgradeLevels[upgrade.id] = (upgradeLevels[upgrade.id] || 0) + 1;
     pendingLevelUps--;
 
-    texts.push(new FloatingText(player.x, player.y - 30, upgrade.name.toUpperCase(), "#4dd0e1"));
+    texts.push(new FloatingText(player.x, player.y - 30, upper(upgradeName(upgrade)), "#4dd0e1"));
     spawnParticles(player.x, player.y, "#4dd0e1", 20);
     playSound("powerup");
 
@@ -1405,7 +1620,7 @@ function applyPowerUp(type) {
         player.powerTimers[type] = POWERUP_DURATION[type];
     }
 
-    texts.push(new FloatingText(player.x, player.y - 30, info.name, info.color));
+    texts.push(new FloatingText(player.x, player.y - 30, powerupName(type), info.color));
     spawnParticles(player.x, player.y, info.color, 15);
     playSound("powerup");
 }
@@ -1537,10 +1752,16 @@ const SOUNDS = {
     smallBoom: () => playNoise(0.18, 0.18),
     bladeHit: () => playTone("triangle", 900, 500, 0.05, 0.05),
     crit: () => playTone("square", 1200, 700, 0.07, 0.05),
+    spit: () => playTone("triangle", 650, 280, 0.1, 0.06),
+    charge: () => playTone("sawtooth", 110, 260, 0.25, 0.08),
+    summon: () => {
+        playTone("sine", 200, 700, 0.4, 0.1);
+        playTone("sine", 300, 900, 0.4, 0.06, 0.1);
+    },
 };
 
 // Aynı anda çok sık çalan sesler (vuruş, patlama, XP) birbirini bastırmasın diye kısa bir sınır
-const SOUND_LIMIT = { hit: 0.04, explode: 0.05, smallBoom: 0.06, xp: 0.03, bladeHit: 0.06 };
+const SOUND_LIMIT = { hit: 0.04, explode: 0.05, smallBoom: 0.06, xp: 0.03, bladeHit: 0.06, spit: 0.08, charge: 0.1 };
 const lastSoundTime = {};
 
 function playSound(name) {
@@ -1691,9 +1912,9 @@ function resumeGame() {
 
 // Menüdeki butonlar: yazı ve tıklayınca ne yapacağı
 const PAUSE_BUTTONS = [
-    { label: "Resume   (Esc)",   action: () => resumeGame() },
-    { label: "Restart   (R)",    action: () => startGame() },
-    { label: "Main menu   (Q)",  action: () => { state = "menu"; } },
+    { label: "resume",   action: () => resumeGame() },   // yazılar STRINGS'ten (iki dilde)
+    { label: "restart",  action: () => startGame() },
+    { label: "mainMenu", action: () => { state = "menu"; } },
 ];
 
 const BUTTON_WIDTH = 260;
@@ -1725,6 +1946,12 @@ function handleKeyPress(key) {
         return;
     }
 
+    // F her ekranda otomatik ateşi açıp kapatsın
+    if (key === "f") {
+        toggleAutofire();
+        return;
+    }
+
     if (state === "menu" && (key === "enter" || key === " ")) {
         startGame();
     } else if (state === "playing") {
@@ -1750,10 +1977,25 @@ function handleKeyPress(key) {
 // =====================================================
 // Zamana göre hangi tip düşman doğacağını seç
 function chooseEnemyType() {
-    const roll = Math.random(); // 0 ile 1 arası rastgele sayı
+    const t = gameTime;
 
-    if (gameTime > 30 && roll < 0.15) return "tank"; // 30. saniyeden sonra %15
-    if (gameTime > 15 && roll < 0.45) return "fast"; // 15. saniyeden sonra
+    // Her tipin "ağırlığı": büyük olan daha sık çıkar, 0 olan hiç çıkmaz
+    const weights = {
+        normal: 55,
+        fast: t > 15 ? 30 : 0,
+        tank: t > 30 ? 15 : 0,
+        spitter: t > SPITTER_START ? Math.min(18, 8 + (t - SPITTER_START) / 30) : 0,
+        charger: t > CHARGER_START ? Math.min(14, 6 + (t - CHARGER_START) / 40) : 0,
+    };
+
+    let total = 0;
+    for (const type in weights) total += weights[type];
+
+    let roll = Math.random() * total;
+    for (const type in weights) {
+        roll -= weights[type];
+        if (roll < 0) return type;
+    }
     return "normal";
 }
 
@@ -1794,12 +2036,23 @@ const BALANCE = {
     spawnRampTime: 60,     // doğma hızının ne kadar sürede iki katına çıktığı (saniye)
     speedMaxMultiplier: 1.5,   // düşmanlar en fazla bu kadar hızlanır
     speedRampPerSecond: 0.0035,
-    healthRampTime: 150,   // düşman canı artış hızı: başta yavaş, sonra hızlanarak artar
+    healthRampTime: 175,   // düşman canı artış hızı: başta yavaş, sonra hızlanarak artar
     xpRampTime: 400,       // düşmanların verdiği XP bu kadar saniyede bir kat daha artar
-    groupStartTime: 240,   // bu saniyeden sonra düşmanlar gruplar halinde doğmaya başlar
-    groupGrowTime: 120,    // her bu kadar saniyede grup 1 düşman büyür
+    groupStartTime: 300,   // bu saniyeden sonra düşmanlar gruplar halinde doğmaya başlar
+    groupGrowTime: 150,    // her bu kadar saniyede grup 1 düşman büyür
+    levelDamageBonus: 0.03, // her seviye atlamada pasif +%3 hasar
     maxEnemies: 120,       // ekranda aynı anda en fazla düşman
 };
+
+// Oyuncunun asıl hasarı: Power Shot'tan gelen hasar × seviye bonusu
+// (her seviye +%3: 20. seviyede +%57, 40. seviyede +%117)
+function getPlayerDamage() {
+    return player.damage * getLevelDamageMultiplier();
+}
+
+function getLevelDamageMultiplier() {
+    return 1 + BALANCE.levelDamageBonus * (level - 1);
+}
 
 // Şu anki düşman canı çarpanı: başta yavaş, sonra hızlanarak artar
 // (2.5 dk: ~2x, 5 dk: ~3.6x, 9 dk: ~7x)
@@ -1812,9 +2065,12 @@ function getXpScale() {
     return 1 + gameTime / BALANCE.xpRampTime;
 }
 
-// Her doğuşta kaç düşman gelsin (4. dakikadan sonra gruplar büyür)
+// Her doğuşta kaç düşman gelsin: 5. dakikadan sonra gruplar kademeli büyür
+// (örn. 1.4 → %60 ihtimalle 1, %40 ihtimalle 2 düşman; bir anda iki katına sıçramaz)
 function getSpawnGroupSize() {
-    return 1 + Math.floor(Math.max(0, gameTime - BALANCE.groupStartTime) / BALANCE.groupGrowTime + (gameTime > BALANCE.groupStartTime ? 1 : 0));
+    const extra = Math.max(0, gameTime - BALANCE.groupStartTime) / BALANCE.groupGrowTime;
+    const whole = Math.floor(extra);
+    return 1 + whole + (Math.random() < extra - whole ? 1 : 0);
 }
 
 function getSpawnInterval() {
@@ -1830,6 +2086,10 @@ function spawnEnemy() {
     // Zamanla tüm düşmanlar hızlansın, ama en fazla 1.5 katına kadar
     // (böylece hız yükseltmesi alan oyuncu hâlâ kaçabilir)
     enemy.speed *= Math.min(BALANCE.speedMaxMultiplier, 1 + gameTime * BALANCE.speedRampPerSecond);
+
+    // 8:00'den sonra bazı düşmanlar elite olarak gelir
+    if (Math.random() < getEliteChance()) makeElite(enemy);
+
     enemies.push(enemy);
 }
 
@@ -1868,7 +2128,7 @@ function killEnemy(enemy) {
             x: enemy.x,
             y: enemy.y,
             radius: EXPLOSION_RADIUS[lvl] + (enemy.isBoss ? 40 : 0),
-            damage: Math.max(1, Math.round(player.damage * EXPLOSION_POWER[lvl] * 10) / 10),
+            damage: Math.max(1, Math.round(getPlayerDamage() * EXPLOSION_POWER[lvl] * 10) / 10),
             life: 0.3,
             done: false,
         });
@@ -1880,7 +2140,7 @@ function killEnemy(enemy) {
         spawnParticles(enemy.x, enemy.y, "#ffd54f", 30);
         shakeScreen(20, 0.8);
         maybeDropPowerUp(enemy);
-        texts.push(new FloatingText(enemy.x, enemy.y - 50, "BOSS DEFEATED! +" + enemy.score, "#ffd54f"));
+        texts.push(new FloatingText(enemy.x, enemy.y - 50, T("bossDefeated", enemy.score), "#ffd54f"));
         playSound("bossDeath");
         boss = null;
         bossTimer = 0;
@@ -1896,15 +2156,15 @@ function killEnemy(enemy) {
 function damagePlayer(amount) {
     if (player.invincibleTimer > 0 || player.dashTime > 0) return false; // atılırken dokunulmaz
 
-    // Armor: hasarı azaltır (en az 1)
-    amount = Math.max(1, Math.round(amount * (1 - player.armor)));
+    // Hasar zamanla artar (dakikada %5), Armor ise azaltır (en az 1)
+    amount = Math.max(1, Math.round(amount * getDamageScale() * (1 - player.armor)));
 
     // Kalkan varsa hasarı o yer ve kırılır
     if (player.hasShield) {
         player.hasShield = false;
         player.invincibleTimer = 1; // kırıldıktan sonra da kısa bir koruma
         spawnParticles(player.x, player.y, "#ce93d8", 25);
-        texts.push(new FloatingText(player.x, player.y - 30, "SHIELD BROKEN", "#ce93d8"));
+        texts.push(new FloatingText(player.x, player.y - 30, T("shieldBroken"), "#ce93d8"));
         shakeScreen(5, 0.15);
         playSound("shieldBreak");
         return true;
@@ -2014,7 +2274,7 @@ function update(dt) {
 
             if (bullet.crit) {
                 // Kritik vuruş: sarı yazı ve turuncu kıvılcımlar
-                texts.push(new FloatingText(enemy.x, enemy.y - enemy.radius - 6, "CRIT!", "#ffb300"));
+                texts.push(new FloatingText(enemy.x, enemy.y - enemy.radius - 6, T("crit"), "#ffb300"));
                 spawnParticles(bullet.x, bullet.y, "#ffb300", 6);
                 playSound("crit");
             }
@@ -2042,7 +2302,7 @@ function update(dt) {
 
             enemy.bladeHitTimer = BLADE_HIT_COOLDOWN;
             spawnParticles(pos.x, pos.y, "#e0f7ff", 4);
-            if (enemy.takeHit(player.damage + 1)) {
+            if (enemy.takeHit(getPlayerDamage() + 1)) {
                 killEnemy(enemy);
             } else {
                 playSound("bladeHit");
@@ -2084,7 +2344,7 @@ function update(dt) {
     for (const bullet of enemyBullets) {
         if (bullet.dead || !isColliding(player, bullet)) continue;
 
-        if (damagePlayer(ENEMY_BULLET_DAMAGE)) {
+        if (damagePlayer(bullet.damage)) {
             bullet.dead = true;
             spawnParticles(bullet.x, bullet.y, "#ff4081", 8);
         }
@@ -2237,6 +2497,309 @@ function drawExplosions() {
         ctx.stroke();
         ctx.globalAlpha = 1;
     }
+}
+
+
+// =====================================================
+//  DİL (TÜRKÇE / İNGİLİZCE)
+// =====================================================
+// Oyundaki bütün yazılar burada. Yeni bir yazı eklerken iki dile de ekle.
+// {0}, {1} gibi yerler T() çağrısında verilen değerlerle doldurulur.
+const STRINGS = {
+    en: {
+        best: "BEST {0}",
+        soundOff: "SOUND OFF (M)",
+        autofire: "AUTOFIRE {0} (F)",
+        on: "ON",
+        off: "OFF",
+        dashReady: "DASH  SPACE",
+        dash: "DASH",
+        lv: "LV",
+        boss: "BOSS {0}",
+        warning: "WARNING",
+        bossIncoming: "BOSS INCOMING",
+        levelUp: "LEVEL UP!",
+        chooseUpgrade: "Choose an upgrade  •  click or press 1, 2, 3",
+        new: "NEW!",
+        paused: "PAUSED",
+        resume: "Resume   (Esc)",
+        restart: "Restart   (R)",
+        mainMenu: "Main menu   (Q)",
+        pauseLevel: "Level {0}  (+{1}% damage)",
+        pauseSettings: "Sound {0} (M)   •   Autofire {1} (F)",
+        noUpgrades: "No upgrades yet",
+        subtitle: "Survive the invasion",
+        start: "Click or press Enter to start",
+        controls: "WASD move  •  Mouse aim  •  Esc pause  •  M sound  •  F autofire",
+        highScore: "HIGH SCORE  {0}",
+        gameOver: "GAME OVER",
+        score: "Score",
+        survived: "Survived",
+        level: "Level",
+        bossesDefeated: "Bosses defeated",
+        newHighScore: "NEW HIGH SCORE!",
+        bestScore: "Best: {0}",
+        gameOverPrompt: "R  play again   •   Esc  menu",
+        bossDefeated: "BOSS DEFEATED! +{0}",
+        shieldBroken: "SHIELD BROKEN",
+        crit: "CRIT!",
+        powerup_heal: "+25 HEALTH",
+        powerup_rapid: "RAPID FIRE",
+        powerup_triple: "TRIPLE SHOT",
+        powerup_shield: "SHIELD",
+    },
+    tr: {
+        best: "REKOR {0}",
+        soundOff: "SES KAPALI (M)",
+        autofire: "OTOMATİK ATEŞ {0} (F)",
+        on: "AÇIK",
+        off: "KAPALI",
+        dashReady: "ATIL  SPACE",
+        dash: "ATIL",
+        lv: "SV",
+        boss: "BOSS {0}",
+        warning: "DİKKAT",
+        bossIncoming: "BOSS GELİYOR",
+        levelUp: "SEVİYE ATLADIN!",
+        chooseUpgrade: "Bir yükseltme seç  •  tıkla ya da 1, 2, 3'e bas",
+        new: "YENİ!",
+        paused: "DURAKLATILDI",
+        resume: "Devam et   (Esc)",
+        restart: "Yeniden başla   (R)",
+        mainMenu: "Ana menü   (Q)",
+        pauseLevel: "Seviye {0}  (+%{1} hasar)",
+        pauseSettings: "Ses {0} (M)   •   Otomatik ateş {1} (F)",
+        noUpgrades: "Henüz yükseltme yok",
+        subtitle: "İstilaya karşı hayatta kal",
+        start: "Başlamak için tıkla ya da Enter'a bas",
+        controls: "WASD hareket  •  Fare nişan  •  Esc duraklat  •  M ses  •  F otomatik ateş",
+        highScore: "EN YÜKSEK SKOR  {0}",
+        gameOver: "OYUN BİTTİ",
+        score: "Skor",
+        survived: "Hayatta kalma",
+        level: "Seviye",
+        bossesDefeated: "Yenilen boss",
+        newHighScore: "YENİ REKOR!",
+        bestScore: "Rekor: {0}",
+        gameOverPrompt: "R  tekrar oyna   •   Esc  menü",
+        bossDefeated: "BOSS YENİLDİ! +{0}",
+        shieldBroken: "KALKAN KIRILDI",
+        crit: "KRİTİK!",
+        powerup_heal: "+25 CAN",
+        powerup_rapid: "HIZLI ATEŞ",
+        powerup_triple: "ÜÇLÜ ATIŞ",
+        powerup_shield: "KALKAN",
+    },
+};
+
+// Yükseltmelerin iki dildeki adı ve açıklaması: [isim, açıklama]
+const UPGRADE_TEXT = {
+    en: {
+        damage: ["Power Shot", "+1 bullet damage"],
+        firerate: ["Quick Trigger", "Shoot 15% faster"],
+        multishot: ["Multishot", "+1 bullet per shot"],
+        pierce: ["Piercing Rounds", "Bullets pass through +1 enemy"],
+        speed: ["Swift Boots", "Move 10% faster"],
+        bulletspeed: ["Velocity", "Bullets fly 20% faster"],
+        vitality: ["Vitality", "+20 max health and heal 20"],
+        magnet: ["Magnet", "Collect XP from farther away"],
+        regen: ["Regeneration", "Regenerate health over time"],
+        blades: ["Orbiting Blades", "+1 spinning blade circles around you"],
+        crit: ["Critical Hit", "+10% chance to deal double damage"],
+        explosive: ["Explosive Rounds", "Enemies explode on death and hurt others"],
+        armor: ["Armor", "Take 10% less damage"],
+        dash: ["Dash", "SPACE to dash, invincible while dashing"],
+        lifesteal: ["Lifesteal", "Heal +0.5 health for every kill"],
+        frost: ["Frost Aura", "Slow down enemies near you"],
+        lucky: ["Lucky", "Power-ups drop more often"],
+    },
+    tr: {
+        damage: ["Güçlü Atış", "+1 mermi hasarı"],
+        firerate: ["Hızlı Tetik", "%15 daha hızlı ateş"],
+        multishot: ["Çoklu Atış", "Her atışta +1 mermi"],
+        pierce: ["Delici Mermi", "Mermiler +1 düşmanın içinden geçer"],
+        speed: ["Çevik Botlar", "%10 daha hızlı hareket"],
+        bulletspeed: ["Mermi Hızı", "Mermiler %20 daha hızlı uçar"],
+        vitality: ["Dayanıklılık", "+20 maksimum can ve 20 can"],
+        magnet: ["Mıknatıs", "XP'yi daha uzaktan topla"],
+        regen: ["Yenilenme", "Zamanla can yenile"],
+        blades: ["Dönen Bıçaklar", "Etrafında dönen +1 bıçak"],
+        crit: ["Kritik Vuruş", "+%10 ihtimalle 2 kat hasar"],
+        explosive: ["Patlayıcı Mermi", "Ölen düşmanlar patlayıp etrafa hasar verir"],
+        armor: ["Zırh", "%10 daha az hasar al"],
+        dash: ["Atılma", "SPACE ile atıl, atılırken hasar almazsın"],
+        lifesteal: ["Can Çalma", "Her öldürmede +0.5 can"],
+        frost: ["Buz Aurası", "Yakınındaki düşmanları yavaşlat"],
+        lucky: ["Şans", "Güçlendirmeler daha sık düşer"],
+    },
+};
+
+// Seçili dil: daha önce seçildiyse o, yoksa tarayıcının dili
+let language = loadLanguage();
+
+function loadLanguage() {
+    try {
+        const saved = localStorage.getItem("incursioLanguage");
+        if (saved === "en" || saved === "tr") return saved;
+    } catch {}
+    const browser = typeof navigator !== "undefined" ? navigator.language || "" : "";
+    return browser.toLowerCase().startsWith("tr") ? "tr" : "en";
+}
+
+function setLanguage(lang) {
+    language = lang;
+    try {
+        localStorage.setItem("incursioLanguage", lang);
+    } catch {}
+}
+
+// Çeviri: T("best", 120) → "BEST 120" ya da "REKOR 120"
+function T(key, ...args) {
+    let text = STRINGS[language][key] ?? STRINGS.en[key] ?? key;
+    args.forEach((value, i) => {
+        text = text.replace("{" + i + "}", value);
+    });
+    return text;
+}
+
+function upgradeName(upgrade) {
+    return UPGRADE_TEXT[language][upgrade.id][0];
+}
+
+function upgradeDesc(upgrade) {
+    return UPGRADE_TEXT[language][upgrade.id][1];
+}
+
+function powerupName(type) {
+    return T("powerup_" + type);
+}
+
+// Türkçede "i" büyük harfe "İ" olur, İngilizcede "I"
+function upper(text) {
+    return text.toLocaleUpperCase(language === "tr" ? "tr-TR" : "en-US");
+}
+
+
+// =====================================================
+//  OTOMATİK ATEŞ
+// =====================================================
+// Açıkken fareye basmadan nişan yönüne kendiliğinden ateş edilir (F ile aç/kapat)
+let autofire = loadAutofire();
+
+function loadAutofire() {
+    try {
+        const saved = localStorage.getItem("incursioAutofire");
+        if (saved !== null) return saved === "1";
+    } catch {}
+    return true; // varsayılan: açık
+}
+
+function toggleAutofire() {
+    autofire = !autofire;
+    try {
+        localStorage.setItem("incursioAutofire", autofire ? "1" : "0");
+    } catch {}
+}
+
+
+// =====================================================
+//  BAYRAKLAR (ana menüde dil seçimi)
+// =====================================================
+// Bayraklar küçük bir canvas'a çizilip büyütülüyor: pixel art görünümü
+const FLAG_W = 30;
+const FLAG_H = 20;
+const flagCache = {};
+
+function getFlag(lang) {
+    if (flagCache[lang]) return flagCache[lang];
+
+    const c = document.createElement("canvas");
+    c.width = FLAG_W;
+    c.height = FLAG_H;
+    const g = c.getContext("2d");
+
+    if (lang === "tr") {
+        // Türk bayrağı: kırmızı zemin, beyaz ay ve yıldız
+        g.fillStyle = "#e30a17";
+        g.fillRect(0, 0, FLAG_W, FLAG_H);
+        g.fillStyle = "#ffffff";
+        g.beginPath();
+        g.arc(11, 10, 6, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = "#e30a17";
+        g.beginPath();
+        g.arc(12.6, 10, 4.8, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = "#ffffff";
+        g.beginPath();
+        for (let i = 0; i < 10; i++) {
+            const r = i % 2 === 0 ? 3 : 1.25;
+            const a = -Math.PI / 2 + (Math.PI * i) / 5 + Math.PI / 2; // bir ucu sola baksın
+            const px = 18.5 + Math.cos(a) * r;
+            const py = 10 + Math.sin(a) * r;
+            if (i === 0) g.moveTo(px, py);
+            else g.lineTo(px, py);
+        }
+        g.closePath();
+        g.fill();
+    } else {
+        // Birleşik Krallık bayrağı (sadeleştirilmiş)
+        g.fillStyle = "#012169";
+        g.fillRect(0, 0, FLAG_W, FLAG_H);
+        g.strokeStyle = "#ffffff";
+        g.lineWidth = 4;
+        g.beginPath();
+        g.moveTo(0, 0); g.lineTo(FLAG_W, FLAG_H);
+        g.moveTo(FLAG_W, 0); g.lineTo(0, FLAG_H);
+        g.stroke();
+        g.strokeStyle = "#c8102e";
+        g.lineWidth = 1.5;
+        g.stroke();
+        g.fillStyle = "#ffffff";
+        g.fillRect(0, 7, FLAG_W, 6);
+        g.fillRect(12, 0, 6, FLAG_H);
+        g.fillStyle = "#c8102e";
+        g.fillRect(0, 8, FLAG_W, 4);
+        g.fillRect(13, 0, 4, FLAG_H);
+    }
+
+    flagCache[lang] = c;
+    return c;
+}
+
+// Menüdeki bayrak butonlarının yeri (sağ üst)
+const FLAG_LANGS = ["tr", "en"];
+
+function getFlagRect(index) {
+    const w = FLAG_W * 2;
+    const h = FLAG_H * 2;
+    const gap = 16;
+    const total = FLAG_LANGS.length * w + (FLAG_LANGS.length - 1) * gap;
+    return { x: canvas.width - 24 - total + index * (w + gap), y: 24, w, h };
+}
+
+function getFlagAt(x, y) {
+    for (let i = 0; i < FLAG_LANGS.length; i++) {
+        const r = getFlagRect(i);
+        if (x >= r.x - 4 && x <= r.x + r.w + 4 && y >= r.y - 4 && y <= r.y + r.h + 4) return i;
+    }
+    return -1;
+}
+
+function drawFlags() {
+    const hovered = getFlagAt(mouse.x, mouse.y);
+    FLAG_LANGS.forEach((lang, i) => {
+        const r = getFlagRect(i);
+        const selected = lang === language;
+        if (selected) {
+            ctx.fillStyle = UI.gold;
+            ctx.fillRect(r.x - 8, r.y - 8, r.w + 16, r.h + 16);
+        }
+        drawPanel(r.x, r.y, r.w, r.h);
+        ctx.globalAlpha = selected || i === hovered ? 1 : 0.55; // seçili olmayan soluk
+        ctx.drawImage(getFlag(lang), r.x, r.y, r.w, r.h);
+        ctx.globalAlpha = 1;
+    });
 }
 
 
@@ -2420,11 +2983,11 @@ function drawHUD() {
     for (const type in player.powerTimers) {
         const timeLeft = player.powerTimers[type];
         if (timeLeft <= 0) continue;
-        drawPowerChip(y, type, POWERUP_TYPES[type].name, timeLeft / POWERUP_DURATION[type]);
+        drawPowerChip(y, type, powerupName(type), timeLeft / POWERUP_DURATION[type]);
         y += 36;
     }
     if (player.hasShield) {
-        drawPowerChip(y, "shield", "SHIELD", 1);
+        drawPowerChip(y, "shield", powerupName("shield"), 1);
     }
 
     // --- Sağ üst: mini harita ve rekor ---
@@ -2435,7 +2998,7 @@ function drawHUD() {
         const dy = canvas.height - 86;
         const ready = player.dashCooldown <= 0;
         drawPanel(16, dy, 112, 20);
-        drawText(ready ? "DASH  SPACE" : "DASH", 22, dy + 8, 12, ready ? UI.cyan : UI.textDim, "left", true);
+        drawText(ready ? T("dashReady") : T("dash"), 22, dy + 8, 12, ready ? UI.cyan : UI.textDim, "left", true);
         const ratio = 1 - player.dashCooldown / DASH_COOLDOWNS[player.dashLevel];
         ctx.fillStyle = "#1a120a";
         ctx.fillRect(16, dy + 16, 112, 4);
@@ -2446,7 +3009,7 @@ function drawHUD() {
     // --- Alt: seviye rozeti ve XP barı ---
     const by = canvas.height - 50;
     drawPanel(16, by, 42, 34);
-    drawText("LV", 37, by + 9, 10, UI.textDim, "center", true);
+    drawText(T("lv"), 37, by + 9, 10, UI.textDim, "center", true);
     drawText(String(level), 37, by + 23, 18, UI.cyan, "center", true);
 
     const xpX = 72;
@@ -2460,15 +3023,15 @@ function drawHUD() {
         const bx = Math.round((canvas.width - bw) / 2);
         drawPanel(bx, 16, bw, 34);
         drawIcon(ICONS.crown, bx + 8, 21, 2);
-        drawText("BOSS " + boss.number, bx + 28, 26, 13, UI.red, "left", true);
+        drawText(T("boss", boss.number), bx + 28, 26, 13, UI.red, "left", true);
         drawText(Math.ceil(boss.health) + " / " + boss.maxHealth, bx + bw - 8, 26, 12, UI.textDim, "right");
         drawBar(bx + 8, 36, bw - 16, 8, boss.health / boss.maxHealth, "#c62828", "#ef5350", "#7f0000");
     }
 
     // --- Boss uyarısı (yanıp söner) ---
     if (bossWarning > 0 && Math.floor(bossWarning * 4) % 2 === 0) {
-        drawCenteredText("WARNING", canvas.height / 2 - 140, 44, UI.red, true);
-        drawCenteredText("BOSS INCOMING", canvas.height / 2 - 104, 22, UI.gold, true);
+        drawCenteredText(T("warning"), canvas.height / 2 - 140, 44, UI.red, true);
+        drawCenteredText(T("bossIncoming"), canvas.height / 2 - 104, 22, UI.gold, true);
     }
 }
 
@@ -2548,10 +3111,11 @@ function drawMinimap() {
     }
 
     // Düşmanlar
-    ctx.fillStyle = "#ff5252";
     for (const enemy of enemies) {
         if (enemy.isBoss) continue;
-        ctx.fillRect(x + enemy.x * scale - 1, y + enemy.y * scale - 1, 2, 2);
+        ctx.fillStyle = enemy.elite ? UI.gold : "#ff5252";
+        const size = enemy.elite ? 3 : 2;
+        ctx.fillRect(x + enemy.x * scale - size / 2, y + enemy.y * scale - size / 2, size, size);
     }
     if (boss) {
         ctx.fillStyle = UI.gold;
@@ -2567,9 +3131,10 @@ function drawMinimap() {
     ctx.fillRect(x + player.x * scale - 2, y + player.y * scale - 2, 4, 4);
 
     // Mini haritanın altında rekor ve ses durumu
-    drawText("BEST " + highScore, x + w, y + h + 18, 14, UI.textDim, "right", true);
+    drawText(T("best", highScore), x + w, y + h + 18, 14, UI.textDim, "right", true);
+    drawText(T("autofire", autofire ? T("on") : T("off")), x + w, y + h + 36, 12, autofire ? UI.cyan : UI.textDim, "right");
     if (muted) {
-        drawText("SOUND OFF (M)", x + w, y + h + 36, 12, UI.textDim, "right");
+        drawText(T("soundOff"), x + w, y + h + 52, 12, UI.textDim, "right");
     }
 }
 
@@ -2596,8 +3161,8 @@ function dimScreen(alpha) {
 function drawLevelUp() {
     dimScreen(0.7);
 
-    drawCenteredText("LEVEL UP!", 86, 42, UI.gold, true);
-    drawCenteredText("Choose an upgrade  •  click or press 1, 2, 3", 122, 15, UI.textDim);
+    drawCenteredText(T("levelUp"), 86, 42, UI.gold, true);
+    drawCenteredText(T("chooseUpgrade"), 122, 15, UI.textDim);
 
     const hovered = getCardIndexAt(mouse.x, mouse.y);
 
@@ -2619,16 +3184,16 @@ function drawLevelUp() {
 
         // Yeni yükseltme etiketi
         if (currentLevel === 0) {
-            drawText("NEW!", r.x + r.w - 12, r.y + 20, 13, UI.gold, "right", true);
+            drawText(T("new"), r.x + r.w - 12, r.y + 20, 13, UI.gold, "right", true);
         }
 
         // İsim, ayırıcı çizgi ve açıklama
-        drawText(upgrade.name, cx, r.y + 62, 21, UI.text, "center", true);
+        drawText(upgradeName(upgrade), cx, r.y + 62, 20, UI.text, "center", true);
         ctx.fillStyle = UI.woodDark;
         ctx.fillRect(r.x + 24, r.y + 82, r.w - 48, 2);
         ctx.fillStyle = UI.woodLight;
         ctx.fillRect(r.x + 24, r.y + 82, r.w - 48, 1);
-        drawWrappedText(upgrade.desc, cx, r.y + 108, r.w - 36, 20, 15, UI.textDim);
+        drawWrappedText(upgradeDesc(upgrade), cx, r.y + 108, r.w - 36, 20, 15, UI.textDim);
 
         // Seviye kutucukları: dolu = alınmış, yanıp sönen = bu seçimle gelecek
         const pip = 12;
@@ -2656,23 +3221,25 @@ function drawPause() {
     const px = (canvas.width - pw) / 2;
     const py = 100;
     drawPanel(px, py, pw, ph);
-    drawCenteredText("PAUSED", py + 44, 38, UI.text, true);
+    drawCenteredText(T("paused"), py + 44, 34, UI.text, true);
 
     // Butonlar
     const hovered = getPauseButtonAt(mouse.x, mouse.y);
     PAUSE_BUTTONS.forEach((button, i) => {
-        drawButton(getPauseButtonRect(i), button.label, i === hovered);
+        drawButton(getPauseButtonRect(i), T(button.label), i === hovered);
     });
 
     // Bilgiler: seviye, ses ve alınan yükseltmeler
     const owned = UPGRADES
         .filter((u) => upgradeLevels[u.id])
-        .map((u) => u.name + " " + upgradeLevels[u.id]);
+        .map((u) => upgradeName(u) + " " + upgradeLevels[u.id]);
 
     const lastButton = getPauseButtonRect(PAUSE_BUTTONS.length - 1);
     const infoY = lastButton.y + lastButton.h + 28;
-    drawCenteredText("Level " + level + "   •   Sound " + (muted ? "off" : "on") + " (M)", infoY, 14, UI.textDim);
-    drawWrappedText(owned.length ? owned.join(", ") : "No upgrades yet", canvas.width / 2, infoY + 22, pw - 36, 16, 12, UI.cyan);
+    const onOff = (value) => (value ? T("on") : T("off"));
+    drawCenteredText(T("pauseLevel", level, Math.round((getLevelDamageMultiplier() - 1) * 100)), infoY, 14, UI.textDim);
+    drawCenteredText(T("pauseSettings", onOff(!muted), onOff(autofire)), infoY + 18, 13, UI.textDim);
+    drawWrappedText(owned.length ? owned.join(", ") : T("noUpgrades"), canvas.width / 2, infoY + 40, pw - 36, 16, 12, UI.cyan);
 }
 
 // Oyunun adı: gölgeli ve kalın konturlu, iki tonlu
@@ -2717,21 +3284,29 @@ function drawMenu() {
 
     const cy = canvas.height / 2;
     drawLogo(cy - 50);
-    drawCenteredText("Survive the invasion", cy - 18, 20, UI.woodLight, true);
+    drawCenteredText(T("subtitle"), cy - 18, 20, UI.woodLight, true);
 
     // "Başlamak için tıkla" yazısı yavaşça yanıp söner
     ctx.globalAlpha = 0.6 + Math.sin(performance.now() / 300) * 0.4;
-    drawCenteredText("Click or press Enter to start", cy + 34, 24, UI.text, true);
+    drawCenteredText(T("start"), cy + 34, 24, UI.text, true);
     ctx.globalAlpha = 1;
 
-    // Kontroller paneli
-    const cw = 640;
-    drawPanel((canvas.width - cw) / 2, cy + 76, cw, 30);
-    drawCenteredText("WASD move   •   Mouse aim, hold to shoot   •   Esc pause   •   M sound", cy + 91, 14, UI.textDim);
+    // Kontroller paneli ve otomatik ateş durumu
+    const cw = 680;
+    drawPanel((canvas.width - cw) / 2, cy + 72, cw, 30);
+    drawCenteredText(T("controls"), cy + 87, 14, UI.textDim);
+    drawCenteredText(T("autofire", autofire ? T("on") : T("off")), cy + 122, 14, autofire ? UI.cyan : UI.textDim, true);
 
-    // Rekor
-    drawIcon(ICONS.crown, canvas.width / 2 - 92, cy + 136, 2);
-    drawText("HIGH SCORE  " + highScore, canvas.width / 2 - 70, cy + 141, 18, UI.gold, "left", true);
+    // Rekor: yazının genişliğine göre ortala, taç ikonu solunda
+    const scoreText = T("highScore", highScore);
+    ctx.font = font(18, true);
+    const sw = ctx.measureText(scoreText).width;
+    const sx = canvas.width / 2 - sw / 2 + 12;
+    drawIcon(ICONS.crown, sx - 24, cy + 151, 2);
+    drawText(scoreText, sx, cy + 156, 18, UI.gold, "left", true);
+
+    // Dil seçimi: sağ üstte bayraklar
+    drawFlags();
 }
 
 function drawGameOver() {
@@ -2743,14 +3318,14 @@ function drawGameOver() {
     const py = (canvas.height - ph) / 2;
     drawPanel(px, py, pw, ph);
 
-    drawCenteredText("GAME OVER", py + 42, 40, UI.red, true);
+    drawCenteredText(T("gameOver"), py + 42, 40, UI.red, true);
 
     // İstatistik satırları: ikon + etiket + değer
     const rows = [
-        [ICONS.coin, "Score", String(score), UI.gold],
-        [ICONS.hourglass, "Survived", formatTime(gameTime), UI.text],
-        [ICONS.star, "Level", String(level), UI.cyan],
-        [ICONS.crown, "Bosses defeated", String(Math.max(0, bossCount - (boss ? 1 : 0))), UI.text],
+        [ICONS.coin, T("score"), String(score), UI.gold],
+        [ICONS.hourglass, T("survived"), formatTime(gameTime), UI.text],
+        [ICONS.star, T("level"), String(level), UI.cyan],
+        [ICONS.crown, T("bossesDefeated"), String(Math.max(0, bossCount - (boss ? 1 : 0))), UI.text],
     ];
     rows.forEach(([icon, label, value, color], i) => {
         const ry = py + 88 + i * 30;
@@ -2762,13 +3337,13 @@ function drawGameOver() {
     // Rekor
     if (newRecord) {
         ctx.globalAlpha = 0.65 + Math.sin(performance.now() / 200) * 0.35;
-        drawCenteredText("NEW HIGH SCORE!", py + 222, 22, UI.gold, true);
+        drawCenteredText(T("newHighScore"), py + 222, 22, UI.gold, true);
         ctx.globalAlpha = 1;
     } else {
-        drawCenteredText("Best: " + highScore, py + 222, 16, UI.textDim);
+        drawCenteredText(T("bestScore", highScore), py + 222, 16, UI.textDim);
     }
 
-    drawCenteredText("R  play again   •   Esc  menu", py + 266, 16, UI.text, true);
+    drawCenteredText(T("gameOverPrompt"), py + 266, 16, UI.text, true);
 }
 
 

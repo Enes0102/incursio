@@ -1,12 +1,21 @@
+<div align="center">
+
 # Browser Shooter Game
 
-A fast-paced top-down shooter that runs right in your browser. Built from scratch with vanilla JavaScript and the HTML5 Canvas API — no game engine, no libraries, no build step.
+**English** | [Türkçe](README.tr.md)
 
-**[▶ Play it here](https://enes0102.github.io/browser-shooter-game/)**
+A fast-paced top-down shooter that runs right in your browser.<br>
+Built from scratch with vanilla JavaScript and the HTML5 Canvas API — no game engine, no libraries, no build step.
+
+### [▶ Play Now](https://enes0102.github.io/browser-shooter-game/)
+
+![Gameplay](assets/gameplay.gif)
+
+</div>
+
+## About
 
 Survive as long as you can against endless waves of enemies that get faster, tougher and more numerous over time. Grab power-ups, chase the high score, and see how long you last.
-
-<!-- Add a screenshot or GIF of the game here -->
 
 ## Controls
 
@@ -15,8 +24,8 @@ Survive as long as you can against endless waves of enemies that get faster, tou
 | `W` `A` `S` `D` | Move |
 | Mouse | Aim |
 | Left click (hold) | Shoot |
-| `Enter` / `Space` / Click | Start game |
-| `R` | Restart after game over |
+| `Enter` / Click | Start game |
+| `R` | Play again after game over |
 | `Esc` | Back to menu |
 | `M` | Mute / unmute sound |
 
@@ -27,8 +36,8 @@ Survive as long as you can against endless waves of enemies that get faster, tou
 - **Three enemy types** with different size, speed and health
 - **Four power-ups** dropped by defeated enemies
 - **Dynamic difficulty** — enemies spawn faster and move quicker the longer you survive
-- **Juicy effects**: particle explosions, screen shake, damage flash and floating text
-- **Procedural sound effects** generated in real time with the Web Audio API (no audio files)
+- **Game feel effects**: particle explosions, screen shake, damage flash and floating text
+- **Procedural sound effects** generated in real time with the Web Audio API — no audio files
 - **Persistent high score** saved in the browser with `localStorage`
 - **Game states**: start menu, gameplay and game over screens
 
@@ -44,7 +53,7 @@ Survive as long as you can against endless waves of enemies that get faster, tou
 
 | Power-up | Effect |
 | --- | --- |
-| 🟢 `+` Heal | Restores 1 health (up to 5) |
+| 🟢 `+` Health | Restores 1 health (up to 5) |
 | 🟡 `R` Rapid Fire | Shoots 2.5× faster for 6 seconds |
 | 🔵 `3` Triple Shot | Fires three bullets at once for 8 seconds |
 | 🟣 `S` Shield | Enemies are destroyed on contact for 6 seconds |
@@ -64,9 +73,13 @@ For automatic reloading while editing, you can use the **Live Server** extension
 
 ```
 browser-shooter-game/
-├── index.html   # Page and canvas element
-├── style.css    # Page layout and styling
-└── game.js      # All game logic: input, entities, effects, sound and rendering
+├── assets/
+│   └── gameplay.gif   # Gameplay preview
+├── index.html         # Page and canvas element
+├── style.css          # Page layout and styling
+├── game.js            # All game logic: input, entities, effects, sound and rendering
+├── README.md          # English documentation
+└── README.tr.md       # Turkish documentation
 ```
 
 ## Built With

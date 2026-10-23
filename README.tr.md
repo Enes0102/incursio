@@ -1,0 +1,96 @@
+<div align="center">
+
+# Browser Shooter Game
+
+[English](README.md) | **Türkçe**
+
+Doğrudan tarayıcıda çalışan, hızlı tempolu, yukarıdan bakışlı bir nişancı oyunu.<br>
+Sıfırdan saf JavaScript ve HTML5 Canvas API ile yazıldı. Oyun motoru, kütüphane veya derleme adımı yok.
+
+### [▶ Hemen Oyna](https://enes0102.github.io/browser-shooter-game/)
+
+![Oynanış](assets/gameplay.gif)
+
+</div>
+
+## Hakkında
+
+Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz düşman dalgalarına karşı olabildiğince uzun hayatta kal. Güçlendirmeleri topla, en yüksek skorun peşine düş ve ne kadar dayanabildiğini gör.
+
+> Oyunun arayüzü İngilizcedir.
+
+## Kontroller
+
+| Tuş | İşlev |
+| --- | --- |
+| `W` `A` `S` `D` | Hareket |
+| Fare | Nişan alma |
+| Sol tık (basılı tut) | Ateş etme |
+| `Enter` / Tıklama | Oyunu başlatma |
+| `R` | Oyun bitince tekrar oynama |
+| `Esc` | Menüye dönme |
+| `M` | Sesi açma / kapatma |
+
+## Özellikler
+
+- **Akıcı hareket ve nişan alma**, kare hızından bağımsız fizik (delta time) ile
+- **Otomatik ateş**, atış hızı sınırıyla: basılı tutmak da tıklamak kadar adil
+- **Üç düşman tipi**, farklı boyut, hız ve can değerleriyle
+- **Dört güçlendirme**, yenilen düşmanlardan düşer
+- **Dinamik zorluk**: hayatta kaldıkça düşmanlar daha sık doğar ve daha hızlı hareket eder
+- **Oyun hissi efektleri**: parçacık patlamaları, ekran sarsıntısı, hasar flaşı ve yükselen yazılar
+- **Prosedürel ses efektleri**, Web Audio API ile gerçek zamanlı üretilir, ses dosyası kullanılmaz
+- **Kalıcı en yüksek skor**, tarayıcıda `localStorage` ile saklanır
+- **Oyun ekranları**: başlangıç menüsü, oyun ve oyun bitti ekranları
+
+### Düşmanlar
+
+| Düşman | Açıklama |
+| --- | --- |
+| 🔴 Normal | Standart düşman. Baştan itibaren gelir. |
+| 🟠 Hızlı | Küçük ve çevik. 15. saniyeden sonra gelir. |
+| 🟣 Tank | Büyük, yavaş ve 4 vuruşta ölür. 30. saniyeden sonra gelir ve daha sık güçlendirme düşürür. |
+
+### Güçlendirmeler
+
+| Güçlendirme | Etkisi |
+| --- | --- |
+| 🟢 `+` Health | 1 can yeniler (en fazla 5) |
+| 🟡 `R` Rapid Fire | 6 saniye boyunca 2.5 kat hızlı ateş |
+| 🔵 `3` Triple Shot | 8 saniye boyunca aynı anda üç mermi |
+| 🟣 `S` Shield | 6 saniye boyunca değen düşmanlar yok olur |
+
+## Yerelde Çalıştırma
+
+Kurulum gerekmez. Repoyu klonla ve `index.html` dosyasını herhangi bir modern tarayıcıda aç:
+
+```bash
+git clone https://github.com/Enes0102/browser-shooter-game.git
+cd browser-shooter-game
+```
+
+Düzenleme yaparken otomatik yenileme için VS Code'daki **Live Server** eklentisini kullanabilirsin.
+
+## Proje Yapısı
+
+```
+browser-shooter-game/
+├── assets/
+│   └── gameplay.gif   # Oynanış önizlemesi
+├── index.html         # Sayfa ve canvas elementi
+├── style.css          # Sayfa düzeni ve stil
+├── game.js            # Tüm oyun mantığı: girdi, nesneler, efektler, ses ve çizim
+├── README.md          # İngilizce dokümantasyon
+└── README.tr.md       # Türkçe dokümantasyon
+```
+
+## Kullanılan Teknolojiler
+
+- JavaScript (ES6+)
+- HTML5 Canvas API
+- Web Audio API
+- CSS
+
+## Geliştirici
+
+**Enescan Güleryüz** — [@Enes0102](https://github.com/Enes0102)

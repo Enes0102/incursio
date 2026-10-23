@@ -76,7 +76,8 @@ Düzenleme yaparken otomatik yenileme için VS Code'daki **Live Server** eklenti
 ```
 browser-shooter-game/
 ├── assets/
-│   └── gameplay.gif   # Oynanış önizlemesi
+│   ├── gameplay.gif   # Oynanış önizlemesi
+│   └── sprites/       # Pixel art sprite'lar (PNG)
 ├── index.html         # Sayfa ve canvas elementi
 ├── style.css          # Sayfa düzeni ve stil
 ├── game.js            # Tüm oyun mantığı: girdi, nesneler, efektler, ses ve çizim

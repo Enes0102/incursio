@@ -74,7 +74,8 @@ For automatic reloading while editing, you can use the **Live Server** extension
 ```
 browser-shooter-game/
 ├── assets/
-│   └── gameplay.gif   # Gameplay preview
+│   ├── gameplay.gif   # Gameplay preview
+│   └── sprites/       # Pixel art sprites (PNG)
 ├── index.html         # Page and canvas element
 ├── style.css          # Page layout and styling
 ├── game.js            # All game logic: input, entities, effects, sound and rendering

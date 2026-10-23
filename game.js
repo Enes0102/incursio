@@ -6,6 +6,64 @@ const ctx = canvas.getContext("2d");
 
 
 // =====================================================
+//  SPRITE'LAR (PIXEL ART RESİMLER)
+// =====================================================
+// Her sprite küçük çizildi, oyunda bu kat büyütülerek gösteriliyor
+const SPRITE_SCALE = 2;
+
+function loadSprite(name) {
+    const img = new Image();
+    img.src = "assets/sprites/" + name + ".png";
+    return img;
+}
+
+const sprites = {
+    player: loadSprite("player"),
+    bullet: loadSprite("bullet"),
+    enemy_normal: loadSprite("enemy_normal"),
+    enemy_fast: loadSprite("enemy_fast"),
+    enemy_tank: loadSprite("enemy_tank"),
+    powerup_heal: loadSprite("powerup_heal"),
+    powerup_rapid: loadSprite("powerup_rapid"),
+    powerup_triple: loadSprite("powerup_triple"),
+    powerup_shield: loadSprite("powerup_shield"),
+};
+
+// Resim yüklendi mi? Yüklenmediyse eski daireler çizilir, oyun yine çalışır
+function isReady(img) {
+    return img && img.complete && img.naturalWidth > 0;
+}
+
+// Sprite'ı (x, y) merkezli, istenirse döndürerek çiz
+function drawSprite(img, x, y, angle = 0) {
+    const w = (img.naturalWidth || img.width) * SPRITE_SCALE;
+    const h = (img.naturalHeight || img.height) * SPRITE_SCALE;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.restore();
+}
+
+// Vurulma efekti için sprite'ın tamamen beyaz bir kopyasını üret (bir kez, sonra sakla)
+function getFlashSprite(img) {
+    if (!img.flashVersion) {
+        const c = document.createElement("canvas");
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        const g = c.getContext("2d");
+        g.drawImage(img, 0, 0);
+        g.globalCompositeOperation = "source-in"; // sadece dolu piksellere boya
+        g.fillStyle = "#ffffff";
+        g.fillRect(0, 0, c.width, c.height);
+        img.flashVersion = c;
+    }
+    return img.flashVersion;
+}
+
+
+// =====================================================
 //  GİRDİ (KLAVYE + FARE)
 // =====================================================
 const keys = {};
@@ -123,13 +181,19 @@ class Player {
         ctx.translate(this.x, this.y);
         ctx.rotate(this.angle);
 
-        ctx.fillStyle = "#6b7280";
-        ctx.fillRect(0, -5, this.radius + 14, 10);
+        if (isReady(sprites.player)) {
+            const w = sprites.player.naturalWidth * SPRITE_SCALE;
+            const h = sprites.player.naturalHeight * SPRITE_SCALE;
+            ctx.drawImage(sprites.player, -w / 2, -h / 2, w, h);
+        } else {
+            ctx.fillStyle = "#6b7280";
+            ctx.fillRect(0, -5, this.radius + 14, 10);
 
-        ctx.fillStyle = "#4fc3f7";
-        ctx.beginPath();
-        ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
-        ctx.fill();
+            ctx.fillStyle = "#4fc3f7";
+            ctx.beginPath();
+            ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
 
         // Kalkan aktifse etrafında bir halka
         if (this.powerTimers.shield > 0) {
@@ -154,6 +218,7 @@ class Bullet {
         this.y = y;
         this.radius = 4;
         this.speed = 600;
+        this.angle = angle;
         this.vx = Math.cos(angle) * this.speed;
         this.vy = Math.sin(angle) * this.speed;
         this.dead = false;
@@ -169,6 +234,11 @@ class Bullet {
     }
 
     draw() {
+        if (isReady(sprites.bullet)) {
+            drawSprite(sprites.bullet, this.x, this.y, this.angle);
+            return;
+        }
+
         ctx.fillStyle = "#ffd54f";
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
@@ -201,6 +271,7 @@ class Enemy {
         this.color = type.color;
         this.score = type.score;
         this.dropChance = type.dropChance;
+        this.sprite = sprites["enemy_" + typeName]; // örn. sprites.enemy_tank
         this.dead = false;
 
         this.hitTimer = 0; // vurulunca kısa süre beyaz yanıp sönsün
@@ -227,11 +298,17 @@ class Enemy {
     }
 
     draw() {
-        // Vurulduysa beyaz, değilse kendi rengi
-        ctx.fillStyle = this.hitTimer > 0 ? "#ffffff" : this.color;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fill();
+        if (isReady(this.sprite)) {
+            // Vurulduysa beyaz kopyasını, değilse normal halini çiz
+            const img = this.hitTimer > 0 ? getFlashSprite(this.sprite) : this.sprite;
+            drawSprite(img, this.x, this.y);
+        } else {
+            // Vurulduysa beyaz, değilse kendi rengi
+            ctx.fillStyle = this.hitTimer > 0 ? "#ffffff" : this.color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
 
         // Birden fazla canı olan düşmanların üstünde can barı
         if (this.maxHealth > 1) {
@@ -366,6 +443,12 @@ class PowerUp {
 
         const info = POWERUP_TYPES[this.type];
         const bob = Math.sin(this.time * 4) * 3; // hafifçe aşağı yukarı sallansın
+
+        const sprite = sprites["powerup_" + this.type];
+        if (isReady(sprite)) {
+            drawSprite(sprite, this.x, this.y + bob);
+            return;
+        }
 
         ctx.fillStyle = info.color;
         ctx.beginPath();
@@ -725,7 +808,7 @@ function update(dt) {
             damageFlash = 0.25;
 
             if (player.health <= 0) {
-                spawnParticles(player.x, player.y, "#4fc3f7", 40);
+                spawnParticles(player.x, player.y, "#7a9a3a", 40);
                 shakeScreen(18, 0.5);
                 playSound("gameover");
                 endGame();
@@ -756,6 +839,9 @@ function update(dt) {
 // =====================================================
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Pixel art büyütülünce bulanıklaşmasın, keskin kalsın
+    ctx.imageSmoothingEnabled = false;
 
     // --- Oyun dünyası (sarsıntıdan etkilenir) ---
     ctx.save();

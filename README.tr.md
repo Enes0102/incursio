@@ -1,10 +1,10 @@
 <div align="center">
 
-# Browser Shooter Game
+# Incursio
 
 [English](README.md) | **Türkçe**
 
-Doğrudan tarayıcıda çalışan, hızlı tempolu, yukarıdan bakışlı bir nişancı oyunu.<br>
+*Latincede "istila" demek.* Doğrudan tarayıcıda çalışan, hızlı tempolu, yukarıdan bakışlı bir nişancı oyunu.<br>
 Sıfırdan saf JavaScript ve HTML5 Canvas API ile yazıldı. Oyun motoru, kütüphane veya derleme adımı yok.
 
 ### [▶ Hemen Oyna](https://enes0102.github.io/browser-shooter-game/)
@@ -38,6 +38,8 @@ Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz dü�
 
 - **XP ve seviye sistemi**: yenilen düşmanlar XP kristali düşürür, her seviyede üç rastgele yükseltmeden birini seçersin
 - **Boss savaşları**: her 60 saniyede bir, her biri öncekinden güçlü
+- **Ormanla çevrili, çitli büyük bir çayır** (yaklaşık 3×3 ekran), oyuncuyu takip eden kamera ve mini harita
+- **Pixel art dünya**: doğal açık ve koyu bölgeleri olan çimen, ahşap çitler, ağaçlar, çiçekler, mantarlar, kütükler, çalılar ve taşlar
 - **Akıcı hareket ve nişan alma**, kare hızından bağımsız fizik (delta time) ile
 - **Otomatik ateş**, atış hızı sınırıyla: basılı tutmak da tıklamak kadar adil
 - **Üç düşman tipi**, farklı boyut, hız ve can değerleriyle
@@ -102,6 +104,7 @@ browser-shooter-game/
 ├── assets/
 │   ├── gameplay.gif   # Oynanış önizlemesi
 │   └── sprites/       # Pixel art sprite'lar (PNG)
+│       └── tiles/     # Çimen, çit, ağaç ve süs karoları
 ├── index.html         # Sayfa ve canvas elementi
 ├── style.css          # Sayfa düzeni ve stil
 ├── game.js            # Tüm oyun mantığı: girdi, nesneler, efektler, ses ve çizim

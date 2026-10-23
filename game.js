@@ -75,6 +75,265 @@ function drawCircle(x, y, radius, color) {
 
 
 // =====================================================
+//  DÜNYA (HARİTA) VE KAMERA
+// =====================================================
+// Harita karolardan oluşuyor: her karo 16x16 piksel çizildi, oyunda 2 kat büyük (32x32)
+const TILE_PIXELS = 16;
+const TILE_SIZE = TILE_PIXELS * SPRITE_SCALE;
+const WORLD_COLS = 96;
+const WORLD_ROWS = 56;
+const WORLD_WIDTH = WORLD_COLS * TILE_SIZE;   // 3072 piksel
+const WORLD_HEIGHT = WORLD_ROWS * TILE_SIZE;  // 1792 piksel
+
+// Haritanın kenarında 3 karo kalınlığında orman, onun içinde ahşap çit
+const FOREST_TILES = 3;
+const WALL = (FOREST_TILES + 1) * TILE_SIZE;  // orman + çit: oynanabilir alanın başladığı yer
+
+function loadTile(name) {
+    return loadSprite("tiles/" + name);
+}
+
+const tiles = {
+    grass_1: loadTile("grass_1"),
+    grass_2: loadTile("grass_2"),
+    grass_3: loadTile("grass_3"),
+    grass_4: loadTile("grass_4"),
+    grass_dark_1: loadTile("grass_dark_1"),
+    grass_dark_2: loadTile("grass_dark_2"),
+    fence_h: loadTile("fence_h"),
+    fence_v: loadTile("fence_v"),
+    fence_post: loadTile("fence_post"),
+    tree_1: loadTile("tree_1"),
+    tree_2: loadTile("tree_2"),
+    tree_3: loadTile("tree_3"),
+    flowers_yellow: loadTile("flowers_yellow"),
+    flowers_white: loadTile("flowers_white"),
+    flowers_purple: loadTile("flowers_purple"),
+    tall_grass: loadTile("tall_grass"),
+    rock: loadTile("rock"),
+    mushroom: loadTile("mushroom"),
+    stump: loadTile("stump"),
+    bush: loadTile("bush"),
+};
+
+// Listede birden fazla geçen daha sık çıkar
+const TREES = ["tree_1", "tree_1", "tree_2", "tree_3"];
+const FLOWERS = ["flowers_yellow", "flowers_white", "flowers_purple"];
+const MEADOW_DECOR = ["tall_grass", "tall_grass", "mushroom", "bush"];
+const COMMON_DECOR = ["rock", "tall_grass", "stump", "bush", "flowers_yellow"];
+
+// Kamera: ekranın sol üst köşesinin dünyadaki konumu
+const camera = { x: 0, y: 0 };
+
+// Kamerayı oyuncuya ortala, ama haritanın dışını göstermesin
+function updateCamera() {
+    let x = player.x - canvas.width / 2;
+    let y = player.y - canvas.height / 2;
+
+    x = Math.max(0, Math.min(WORLD_WIDTH - canvas.width, x));
+    y = Math.max(0, Math.min(WORLD_HEIGHT - canvas.height, y));
+
+    // Pixel art titremesin diye kamerayı tam piksellere yuvarla
+    camera.x = Math.round(x / SPRITE_SCALE) * SPRITE_SCALE;
+    camera.y = Math.round(y / SPRITE_SCALE) * SPRITE_SCALE;
+}
+
+// Bir nesneyi çitin içinde tut
+function clampToWorld(obj) {
+    obj.x = Math.max(WALL + obj.radius, Math.min(WORLD_WIDTH - WALL - obj.radius, obj.x));
+    obj.y = Math.max(WALL + obj.radius, Math.min(WORLD_HEIGHT - WALL - obj.radius, obj.y));
+}
+
+// Nokta çitin içinde mi?
+function isInsideWalls(x, y) {
+    return x > WALL && x < WORLD_WIDTH - WALL && y > WALL && y < WORLD_HEIGHT - WALL;
+}
+
+// Nokta ekranda (ya da ekranın margin kadar yakınında) mı?
+function isNearView(x, y, margin) {
+    return x > camera.x - margin && x < camera.x + canvas.width + margin &&
+           y > camera.y - margin && y < camera.y + canvas.height + margin;
+}
+
+// Tohumlu rastgele sayı üreteci: aynı tohum = her açılışta aynı harita
+function seededRandom(seed) {
+    return function () {
+        seed = (seed + 0x6d2b79f5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+// Yumuşak gürültü (value noise): yan yana noktalar benzer değer verir,
+// böylece koyu/açık çimen bölgeleri doğal öbekler halinde dağılır
+function makeNoise(seed) {
+    const rand = seededRandom(seed);
+    const N = 64;
+    const grid = [];
+    for (let i = 0; i < N * N; i++) grid.push(rand());
+
+    const at = (x, y) => grid[(((y % N) + N) % N) * N + (((x % N) + N) % N)];
+    const smooth = (t) => t * t * (3 - 2 * t);
+
+    return function (x, y) {
+        const xi = Math.floor(x);
+        const yi = Math.floor(y);
+        const u = smooth(x - xi);
+        const v = smooth(y - yi);
+        const top = at(xi, yi) + (at(xi + 1, yi) - at(xi, yi)) * u;
+        const bottom = at(xi, yi + 1) + (at(xi + 1, yi + 1) - at(xi, yi + 1)) * u;
+        return top + (bottom - top) * v;
+    };
+}
+
+// Pixel art taraması (Bayer matrisi): bölge kenarlarını piksel piksel yumuşatır
+const BAYER = [
+    [0, 8, 2, 10],
+    [12, 4, 14, 6],
+    [3, 11, 1, 9],
+    [15, 7, 13, 5],
+];
+
+// Bütün zemini bir kez görünmez bir canvas'a çiz, sonra her karede sadece görünen kısmını kopyala.
+// (Her karede binlerce karo çizmekten çok daha hızlı)
+let groundCanvas = null;
+
+function buildGround() {
+    if (groundCanvas) return true;
+    for (const key in tiles) {
+        if (!isReady(tiles[key])) return false; // karolar henüz yüklenmedi
+    }
+
+    const T = TILE_PIXELS;
+    const W = WORLD_COLS * T;
+    const H = WORLD_ROWS * T;
+    const F = FOREST_TILES;               // çitin olduğu karo sırası
+    const lastCol = WORLD_COLS - 1 - F;
+    const lastRow = WORLD_ROWS - 1 - F;
+
+    const c = document.createElement("canvas");
+    c.width = W;
+    c.height = H;
+    const g = c.getContext("2d");
+    const rand = seededRandom(2026);
+    const noise = makeNoise(7);
+    const pick = (list) => list[Math.floor(rand() * list.length)];
+
+    const isForest = (col, row) => col < F || row < F || col > WORLD_COLS - 1 - F || row > WORLD_ROWS - 1 - F;
+    const isFence = (col, row) => !isForest(col, row) && (col === F || row === F || col === lastCol || row === lastRow);
+
+    const treesBehind = [];   // çitin arkasında kalacak ağaçlar (üst ve yanlar)
+    const treesInFront = [];  // çitin önünde kalacak ağaçlar (alt)
+    const decorations = [];
+
+    // 1) Çimen karoları, ağaç ve süs yerleri
+    for (let row = 0; row < WORLD_ROWS; row++) {
+        for (let col = 0; col < WORLD_COLS; col++) {
+            const x = col * T;
+            const y = row * T;
+
+            if (isForest(col, row)) {
+                g.drawImage(rand() < 0.5 ? tiles.grass_dark_1 : tiles.grass_dark_2, x, y);
+                if (rand() < 0.7) {
+                    const tree = {
+                        name: pick(TREES),
+                        x: x - 8 + Math.floor(rand() * 13) - 6,
+                        y: y - 12 + Math.floor(rand() * 13) - 6,
+                    };
+                    (row > lastRow ? treesInFront : treesBehind).push(tree);
+                }
+                continue;
+            }
+
+            g.drawImage(tiles["grass_" + (1 + Math.floor(rand() * 4))], x, y);
+            if (isFence(col, row)) continue;
+
+            // Açık bölgelerde çiçek, koyu bölgelerde uzun çimen ve mantar daha sık
+            const n = noise(col / 6, row / 6);
+            const p = rand();
+            let deco = null;
+            if (n < 0.35 && p < 0.10) deco = pick(FLOWERS);
+            else if (n > 0.6 && p < 0.10) deco = pick(MEADOW_DECOR);
+            else if (p < 0.035) deco = pick(COMMON_DECOR);
+
+            if (deco) {
+                // Izgaraya dizilmiş gibi durmasın diye karo içinde biraz kaydır
+                decorations.push({ name: deco, x: x + Math.floor(rand() * 11) - 5, y: y + Math.floor(rand() * 11) - 5 });
+            }
+        }
+    }
+
+    // 2) Koyu ve açık çimen bölgeleri (piksel piksel, taramalı kenarlarla)
+    const shade = g.createImageData(W, H);
+    const data = shade.data;
+    const minP = (F + 1) * T;
+    for (let py = minP; py < H - minP; py++) {
+        for (let px = minP; px < W - minP; px++) {
+            const n = noise(px / (T * 6), py / (T * 6)) + (BAYER[py % 4][px % 4] / 16 - 0.5) * 0.05;
+            const i = (py * W + px) * 4;
+            if (n > 0.6) {
+                data[i] = 20; data[i + 1] = 55; data[i + 2] = 15; data[i + 3] = 60;     // koyu çimen
+            } else if (n < 0.3) {
+                data[i] = 230; data[i + 1] = 255; data[i + 2] = 160; data[i + 3] = 22;  // güneşli çimen
+            }
+        }
+    }
+    const shadeCanvas = document.createElement("canvas");
+    shadeCanvas.width = W;
+    shadeCanvas.height = H;
+    shadeCanvas.getContext("2d").putImageData(shade, 0, 0);
+    g.drawImage(shadeCanvas, 0, 0);
+
+    // 3) Süsler, arkadaki ağaçlar, çit, öndeki ağaçlar (üstten alta doğru sırayla)
+    for (const d of decorations) g.drawImage(tiles[d.name], d.x, d.y);
+
+    treesBehind.sort((a, b) => a.y - b.y);
+    for (const t of treesBehind) g.drawImage(tiles[t.name], t.x, t.y);
+
+    for (let row = F; row <= lastRow; row++) {
+        for (let col = F; col <= lastCol; col++) {
+            if (!isFence(col, row)) continue;
+            const corner = (col === F || col === lastCol) && (row === F || row === lastRow);
+            const piece = corner ? tiles.fence_post : (row === F || row === lastRow) ? tiles.fence_h : tiles.fence_v;
+            g.drawImage(piece, col * T, row * T);
+        }
+    }
+
+    treesInFront.sort((a, b) => a.y - b.y);
+    for (const t of treesInFront) g.drawImage(tiles[t.name], t.x, t.y);
+
+    groundCanvas = c;
+    return true;
+}
+
+function drawGround() {
+    if (buildGround()) {
+        // Sadece kameranın gördüğü kısmı (sarsıntı payıyla biraz fazlasını) çiz,
+        // ama haritanın dışına taşmasın
+        const pad = 24;
+        const x0 = Math.max(0, camera.x - pad);
+        const y0 = Math.max(0, camera.y - pad);
+        const x1 = Math.min(WORLD_WIDTH, camera.x + canvas.width + pad);
+        const y1 = Math.min(WORLD_HEIGHT, camera.y + canvas.height + pad);
+
+        ctx.drawImage(
+            groundCanvas,
+            x0 / SPRITE_SCALE, y0 / SPRITE_SCALE, (x1 - x0) / SPRITE_SCALE, (y1 - y0) / SPRITE_SCALE, // kaynak (küçük çizim)
+            x0, y0, x1 - x0, y1 - y0                                                                  // hedef (dünyada)
+        );
+    } else {
+        // Karolar yüklenmediyse düz renk çimen ve çit
+        ctx.fillStyle = "#4f8a3a";
+        ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+        ctx.strokeStyle = "#a0703c";
+        ctx.lineWidth = 8;
+        ctx.strokeRect(WALL - 4, WALL - 4, WORLD_WIDTH - WALL * 2 + 8, WORLD_HEIGHT - WALL * 2 + 8);
+    }
+}
+
+
+// =====================================================
 //  GİRDİ (KLAVYE + FARE)
 // =====================================================
 const keys = {};
@@ -180,10 +439,12 @@ class Player {
         this.x += dx * this.speed * dt;
         this.y += dy * this.speed * dt;
 
-        this.x = Math.max(this.radius, Math.min(canvas.width - this.radius, this.x));
-        this.y = Math.max(this.radius, Math.min(canvas.height - this.radius, this.y));
+        clampToWorld(this); // çitin içinde kal
 
-        this.angle = Math.atan2(mouse.y - this.y, mouse.x - this.x);
+        // Fare ekranda, oyuncu dünyada: farenin dünyadaki yerini bulmak için kamerayı ekle
+        const aimX = mouse.x + camera.x;
+        const aimY = mouse.y + camera.y;
+        this.angle = Math.atan2(aimY - this.y, aimX - this.x);
 
         this.time += dt;
         this.invincibleTimer = Math.max(0, this.invincibleTimer - dt);
@@ -280,7 +541,12 @@ class Bullet {
         this.x += this.vx * dt;
         this.y += this.vy * dt;
 
-        if (this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) {
+        if (!isInsideWalls(this.x, this.y)) {
+            // Çite çarptı: küçük tahta kıymıkları çıkarıp yok olsun
+            this.dead = true;
+            spawnParticles(this.x, this.y, "#c4935a", 3); // tahta kıymıkları
+        } else if (!isNearView(this.x, this.y, 100)) {
+            // Ekrandan çok uzaklaştı
             this.dead = true;
         }
     }
@@ -312,9 +578,10 @@ class EnemyBullet {
         this.x += this.vx * dt;
         this.y += this.vy * dt;
 
-        const margin = 20;
-        if (this.x < -margin || this.x > canvas.width + margin ||
-            this.y < -margin || this.y > canvas.height + margin) {
+        if (!isInsideWalls(this.x, this.y)) {
+            this.dead = true;
+            spawnParticles(this.x, this.y, "#ff80ab", 3);
+        } else if (!isNearView(this.x, this.y, 300)) {
             this.dead = true;
         }
     }
@@ -376,6 +643,7 @@ class Enemy {
         }
 
         this.hitTimer -= dt;
+        clampToWorld(this);
     }
 
     // Hasar al. Öldüyse true döndürür.
@@ -447,6 +715,7 @@ class Boss {
         }
 
         this.hitTimer -= dt;
+        clampToWorld(this);
 
         this.attackTimer -= dt;
         if (this.attackTimer <= 0) {
@@ -534,6 +803,7 @@ class XpGem {
 
         this.x += this.vx * dt;
         this.y += this.vy * dt;
+        clampToWorld(this);
     }
 
     draw() {
@@ -974,7 +1244,8 @@ function loadMuted() {
 // state: "menu" | "playing" | "paused" | "levelup" | "gameover"
 let state = "menu";
 
-let player = new Player(canvas.width / 2, canvas.height / 2);
+let player = new Player(WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+updateCamera();
 let bullets = [];
 let enemyBullets = [];
 let enemies = [];
@@ -1026,7 +1297,8 @@ function saveHighScore() {
 }
 
 function startGame() {
-    player = new Player(canvas.width / 2, canvas.height / 2);
+    player = new Player(WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+    updateCamera();
     bullets = [];
     enemyBullets = [];
     enemies = [];
@@ -1151,18 +1423,35 @@ function chooseEnemyType() {
     return "normal";
 }
 
-// Ekranın rastgele bir kenarında, biraz dışarıda bir nokta
-function randomEdgePosition(margin) {
-    const side = Math.floor(Math.random() * 4);
+// Kameranın görüş alanının hemen dışında, ama çitin içinde rastgele bir nokta
+function randomSpawnPosition(margin) {
+    const left = camera.x - margin;
+    const right = camera.x + canvas.width + margin;
+    const top = camera.y - margin;
+    const bottom = camera.y + canvas.height + margin;
 
-    if (side === 0) return { x: Math.random() * canvas.width, y: -margin };
-    if (side === 1) return { x: canvas.width + margin, y: Math.random() * canvas.height };
-    if (side === 2) return { x: Math.random() * canvas.width, y: canvas.height + margin };
-    return { x: -margin, y: Math.random() * canvas.height };
+    const minX = WALL + 30;
+    const maxX = WORLD_WIDTH - WALL - 30;
+    const minY = WALL + 30;
+    const maxY = WORLD_HEIGHT - WALL - 30;
+
+    const between = (a, b) => a + Math.random() * (b - a);
+
+    // Sadece duvarın dışında kalmayan kenarlar seçilebilir
+    const options = [];
+    if (top >= minY) options.push(() => ({ x: between(Math.max(minX, left), Math.min(maxX, right)), y: top }));
+    if (bottom <= maxY) options.push(() => ({ x: between(Math.max(minX, left), Math.min(maxX, right)), y: bottom }));
+    if (left >= minX) options.push(() => ({ x: left, y: between(Math.max(minY, top), Math.min(maxY, bottom)) }));
+    if (right <= maxX) options.push(() => ({ x: right, y: between(Math.max(minY, top), Math.min(maxY, bottom)) }));
+
+    if (options.length === 0) {
+        return { x: between(minX, maxX), y: between(minY, maxY) };
+    }
+    return options[Math.floor(Math.random() * options.length)]();
 }
 
 function spawnEnemy() {
-    const pos = randomEdgePosition(30);
+    const pos = randomSpawnPosition(40);
     const enemy = new Enemy(pos.x, pos.y, chooseEnemyType());
     // Zamanla tüm düşmanlar hızlansın, ama en fazla 2 katına kadar
     enemy.speed *= Math.min(2, 1 + gameTime * 0.015);
@@ -1171,9 +1460,9 @@ function spawnEnemy() {
 
 function spawnBoss() {
     bossCount++;
-    // Oyuncudan uzak taraftan, ekranın üstünden ya da altından gelsin
-    const y = player.y > canvas.height / 2 ? -50 : canvas.height + 50;
-    boss = new Boss(canvas.width / 2, y, bossCount);
+    // Ekranın hemen dışından gelsin
+    const pos = randomSpawnPosition(70);
+    boss = new Boss(pos.x, pos.y, bossCount);
     enemies.push(boss);
 }
 
@@ -1232,7 +1521,7 @@ function damagePlayer() {
     damageFlash = 0.25;
 
     if (player.health <= 0) {
-        spawnParticles(player.x, player.y, "#7a9a3a", 40);
+        spawnParticles(player.x, player.y, "#4a86c5", 40);
         shakeScreen(18, 0.5);
         playSound("gameover");
         endGame();
@@ -1266,6 +1555,7 @@ function update(dt) {
     if (state !== "playing") return;
 
     player.update(dt);
+    updateCamera();
 
     gameTime += dt;
     spawnInterval = Math.max(0.3, 1.5 - gameTime * 0.02);
@@ -1385,7 +1675,8 @@ function update(dt) {
 //  ÇİZİM
 // =====================================================
 function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#1b1f24";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Pixel art büyütülünce bulanıklaşmasın, keskin kalsın
     ctx.imageSmoothingEnabled = false;
@@ -1398,6 +1689,11 @@ function draw() {
         const offsetY = (Math.random() * 2 - 1) * shakeStrength;
         ctx.translate(offsetX, offsetY);
     }
+
+    // Kamerayı uygula: bundan sonra her şey dünya koordinatlarında çiziliyor
+    ctx.translate(-camera.x, -camera.y);
+
+    drawGround();
 
     for (const particle of particles) particle.draw();
     for (const gem of xpGems) gem.draw();
@@ -1479,6 +1775,8 @@ function drawHUD() {
     ctx.fillText("Best: " + highScore, canvas.width - 16, 32);
     ctx.textAlign = "left";
 
+    drawMinimap();
+
     // --- XP barı (ekranın en altında) ---
     const barX = 16;
     const barY = canvas.height - 18;
@@ -1517,6 +1815,55 @@ function drawHUD() {
     if (bossWarning > 0 && Math.floor(bossWarning * 4) % 2 === 0) {
         drawCenteredText("WARNING: BOSS INCOMING", canvas.height / 2 - 120, "bold 36px Arial", "#ef5350");
     }
+}
+
+// Sağ üstteki mini harita
+function drawMinimap() {
+    const w = 160;
+    const h = Math.round(w * WORLD_HEIGHT / WORLD_WIDTH);
+    const x = canvas.width - w - 16;
+    const y = 70;
+    const scale = w / WORLD_WIDTH; // dünya pikseli → mini harita pikseli
+
+    // Arka plan ve duvar çerçevesi
+    ctx.fillStyle = "rgba(20, 45, 20, 0.75)";
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = "#1a3416";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+
+    // Çit
+    ctx.strokeStyle = "#c4935a";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + WALL * scale, y + WALL * scale, (WORLD_WIDTH - WALL * 2) * scale, (WORLD_HEIGHT - WALL * 2) * scale);
+
+    // Kameranın gördüğü alan
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.45)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + camera.x * scale, y + camera.y * scale, canvas.width * scale, canvas.height * scale);
+
+    // Güçlendirmeler
+    for (const powerUp of powerUps) {
+        ctx.fillStyle = POWERUP_TYPES[powerUp.type].color;
+        ctx.fillRect(x + powerUp.x * scale - 1.5, y + powerUp.y * scale - 1.5, 3, 3);
+    }
+
+    // Düşmanlar (boss büyük ve sarı çerçeveli)
+    for (const enemy of enemies) {
+        if (enemy.isBoss) continue;
+        ctx.fillStyle = "#ef5350";
+        ctx.fillRect(x + enemy.x * scale - 1, y + enemy.y * scale - 1, 2, 2);
+    }
+    if (boss) {
+        ctx.fillStyle = "#ffd54f";
+        ctx.fillRect(x + boss.x * scale - 4, y + boss.y * scale - 4, 8, 8);
+        ctx.fillStyle = "#c62828";
+        ctx.fillRect(x + boss.x * scale - 3, y + boss.y * scale - 3, 6, 6);
+    }
+
+    // Oyuncu
+    ctx.fillStyle = "#4fc3f7";
+    ctx.fillRect(x + player.x * scale - 2, y + player.y * scale - 2, 4, 4);
 }
 
 // Ortalanmış yazı yazmak için yardımcı fonksiyon
@@ -1638,12 +1985,49 @@ function drawPause() {
     ctx.textAlign = "left";
 }
 
+// Oyunun adı: gölgeli ve kalın konturlu, pixel art oyunlarındaki logolar gibi
+function drawLogo(y) {
+    const text = "INCURSIO";
+    ctx.font = "bold 72px Arial";
+    ctx.textAlign = "center";
+    ctx.lineJoin = "round";
+
+    // Gölge
+    ctx.fillStyle = "#0f1d2c";
+    ctx.fillText(text, canvas.width / 2 + 5, y + 5);
+
+    // Kalın koyu kontur
+    ctx.strokeStyle = "#0f1d2c";
+    ctx.lineWidth = 10;
+    ctx.strokeText(text, canvas.width / 2, y);
+
+    // Yazının kendisi: üst yarısı açık, alt yarısı koyu mavi (iki tonlu)
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, y - 60, canvas.width, 34);
+    ctx.clip();
+    ctx.fillStyle = "#8cc3f0";
+    ctx.fillText(text, canvas.width / 2, y);
+    ctx.restore();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, y - 26, canvas.width, 40);
+    ctx.clip();
+    ctx.fillStyle = "#4a86c5";
+    ctx.fillText(text, canvas.width / 2, y);
+    ctx.restore();
+
+    ctx.textAlign = "left";
+}
+
 function drawMenu() {
     ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const cy = canvas.height / 2;
-    drawCenteredText("TOP-DOWN SHOOTER", cy - 60, "bold 56px Arial", "#4fc3f7");
+    drawLogo(cy - 60);
+    drawCenteredText("Survive the invasion", cy - 22, "italic 18px Arial", "#c4935a");
     drawCenteredText("Click or press Enter to start", cy + 10, "24px Arial", "#ffffff");
     drawCenteredText("WASD: move   •   Mouse: aim, hold to shoot   •   Esc: pause   •   M: sound", cy + 50, "18px Arial", "#9ca3af");
     drawCenteredText("High score: " + highScore, cy + 100, "20px Arial", "#ffd54f");

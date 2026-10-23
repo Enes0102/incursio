@@ -1,10 +1,10 @@
 <div align="center">
 
-# Browser Shooter Game
+# Incursio
 
 **English** | [Türkçe](README.tr.md)
 
-A fast-paced top-down shooter that runs right in your browser.<br>
+*Latin for "invasion".* A fast-paced top-down shooter that runs right in your browser.<br>
 Built from scratch with vanilla JavaScript and the HTML5 Canvas API — no game engine, no libraries, no build step.
 
 ### [▶ Play Now](https://enes0102.github.io/browser-shooter-game/)
@@ -36,6 +36,8 @@ Survive as long as you can against endless waves of enemies that get faster, tou
 
 - **XP and level-up system** — defeated enemies drop XP gems; every level lets you pick one of three random upgrades
 - **Boss fights** every 60 seconds, each boss tougher than the last
+- **Large fenced meadow** (about 3×3 screens) surrounded by forest, with a camera that follows the player and a minimap
+- **Pixel art world**: grass with natural light and dark patches, wooden fences, trees, flowers, mushrooms, stumps, bushes and rocks
 - **Smooth movement and aiming** with frame-rate independent physics (delta time)
 - **Automatic fire** with a fire-rate limit, so holding the button is as fair as clicking
 - **Three enemy types** with different size, speed and health
@@ -100,6 +102,7 @@ browser-shooter-game/
 ├── assets/
 │   ├── gameplay.gif   # Gameplay preview
 │   └── sprites/       # Pixel art sprites (PNG)
+│       └── tiles/     # Grass, fence, tree and decoration tiles
 ├── index.html         # Page and canvas element
 ├── style.css          # Page layout and styling
 ├── game.js            # All game logic: input, entities, effects, sound and rendering

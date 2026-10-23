@@ -7,7 +7,7 @@
 *Latin for "invasion".* A fast-paced top-down shooter that runs right in your browser.<br>
 Built from scratch with vanilla JavaScript and the HTML5 Canvas API — no game engine, no libraries, no build step.
 
-### [▶ Play Now](https://enes0102.github.io/browser-shooter-game/)
+### [▶ Play Now](https://enes0102.github.io/incursio/)
 
 ![Gameplay](assets/gameplay.gif)
 
@@ -89,8 +89,8 @@ A crowned giant appears every 60 seconds after a warning. It slowly chases you a
 No installation needed. Clone the repository and open `index.html` in any modern browser:
 
 ```bash
-git clone https://github.com/Enes0102/browser-shooter-game.git
-cd browser-shooter-game
+git clone https://github.com/Enes0102/incursio.git
+cd incursio
 ```
 
 For automatic reloading while editing, you can use the **Live Server** extension in VS Code.
@@ -98,7 +98,7 @@ For automatic reloading while editing, you can use the **Live Server** extension
 ## Project Structure
 
 ```
-browser-shooter-game/
+incursio/
 ├── assets/
 │   ├── gameplay.gif   # Gameplay preview
 │   └── sprites/       # Pixel art sprites (PNG)

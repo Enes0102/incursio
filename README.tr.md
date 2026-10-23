@@ -7,7 +7,7 @@
 *Latincede "istila" demek.* Doğrudan tarayıcıda çalışan, hızlı tempolu, yukarıdan bakışlı bir nişancı oyunu.<br>
 Sıfırdan saf JavaScript ve HTML5 Canvas API ile yazıldı. Oyun motoru, kütüphane veya derleme adımı yok.
 
-### [▶ Hemen Oyna](https://enes0102.github.io/browser-shooter-game/)
+### [▶ Hemen Oyna](https://enes0102.github.io/incursio/)
 
 ![Oynanış](assets/gameplay.gif)
 
@@ -91,8 +91,8 @@ Her 60 saniyede bir, önce bir uyarıyla taçlı dev bir canavar gelir. Yavaşç
 Kurulum gerekmez. Repoyu klonla ve `index.html` dosyasını herhangi bir modern tarayıcıda aç:
 
 ```bash
-git clone https://github.com/Enes0102/browser-shooter-game.git
-cd browser-shooter-game
+git clone https://github.com/Enes0102/incursio.git
+cd incursio
 ```
 
 Düzenleme yaparken otomatik yenileme için VS Code'daki **Live Server** eklentisini kullanabilirsin.
@@ -100,7 +100,7 @@ Düzenleme yaparken otomatik yenileme için VS Code'daki **Live Server** eklenti
 ## Proje Yapısı
 
 ```
-browser-shooter-game/
+incursio/
 ├── assets/
 │   ├── gameplay.gif   # Oynanış önizlemesi
 │   └── sprites/       # Pixel art sprite'lar (PNG)

@@ -17,6 +17,12 @@ Built from scratch with vanilla JavaScript and the HTML5 Canvas API — no game 
 
 Survive as long as you can against endless waves of enemies that get faster, tougher and more numerous over time. Collect XP to level up and build your own loadout from stackable upgrades, take down a new boss every minute, and chase the high score.
 
+## Why I Built This
+
+I built Incursio to learn JavaScript. Instead of using a game engine, I wanted to understand what an engine does for you: the game loop, rendering on a canvas, collision detection, input handling and generating sound in code.
+
+I used AI tools during development to speed things up, explain concepts and help track down bugs. The gameplay design, testing, balancing and decisions about what to add next were mine.
+
 ## Controls
 
 | Key | Action |

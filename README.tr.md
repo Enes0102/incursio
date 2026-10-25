@@ -19,6 +19,12 @@ Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz dü�
 
 > Oyun Türkçe ve İngilizce oynanabilir, ana menünün sağ üstündeki bayraklardan dili seçebilirsin.
 
+## Neden Yaptım
+
+Incursio'yu JavaScript öğrenmek için yaptım. Oyun motoru kullanmak yerine, bir motorun senin için neler yaptığını anlamak istedim: oyun döngüsü, canvas'a çizim, çarpışma algılama, girdi yönetimi ve kodla ses üretimi.
+
+Geliştirme sırasında işleri hızlandırmak, kavramları anlamak ve hataları bulmak için yapay zekâ araçlarından yararlandım. Oynanış tasarımı, testler, denge ayarları ve sıradaki özelliğe dair kararlar bana ait.
+
 ## Kontroller
 
 | Tuş | İşlev |

@@ -34,8 +34,11 @@ Geliştirme sırasında işleri hızlandırmak, kavramları anlamak ve hataları
 | Sol tık (basılı tut) | Ateş etme |
 | `F` | Otomatik ateşi açma / kapatma (varsayılan: açık) |
 | `Space` | Atılma (Dash yükseltmesini alınca) |
-| `1` `2` `3` / Tıklama | Seviye atlayınca yükseltme seçme |
+| `1` `2` `3` (`4`) / Tıklama | Seviye atlayınca yükseltme seçme |
+| `R` (seviye atlayınca) | Kartları yenileme (Atölye'den açılınca) |
 | `Enter` / Tıklama | Oyunu başlatma |
+| `←` `→` / `A` `D` / Oklara tıklama | Ana menüde tehlike seviyesi seçme |
+| `W` (ana menüde) | Atölye'yi açma |
 | `R` | Oyun bitince tekrar oynama |
 | `Esc` / `P` | Duraklatma / devam etme |
 | `R` / `Q` (duraklatılmışken) | Yeniden başlatma / menüye çıkma |
@@ -59,7 +62,9 @@ Geliştirme sırasında işleri hızlandırmak, kavramları anlamak ve hataları
 - **Hasar sayıları**: her vuruşta verilen hasar belirir, kritik vuruşlarda daha büyük ve turuncu
 - **Oyun hissi efektleri**: parçacık patlamaları, ekran sarsıntısı, hasar flaşı ve yükselen yazılar
 - **Prosedürel ses efektleri**, Web Audio API ile gerçek zamanlı üretilir, ses dosyası kullanılmaz
-- **Kalıcı en yüksek skor**, tarayıcıda `localStorage` ile saklanır
+- **0–10 arası tehlike seviyeleri**: 10 dakika hayatta kalınca bir sonraki, daha zor seviye açılır
+- **Altın ve Atölye**: oyun sırasında altın topla, oyunlar arasında kalıcı geliştirmelere harca
+- **Kalıcı en yüksek skor**, her tehlike seviyesi için ayrı, tarayıcıda `localStorage` ile saklanır
 - **Oyun ekranları**: başlangıç menüsü, duraklatma menüsü, seviye atlama ve oyun bitti ekranları
 - **Türkçe ve İngilizce**: ana menüdeki bayraklara tıklayarak dil değiştirme
 - **Otomatik ateş**: fareye basılı tutmadan imlecin yönüne ateş eder (`F` ile aç/kapat)
@@ -81,6 +86,35 @@ Bütün düşman hasarları her dakika %5 artar; yani her şeyi sonuna kadar alm
 ### Boss
 
 Her 60 saniyede bir, önce bir uyarıyla taçlı dev bir canavar gelir. Yavaşça seni kovalar ve iki saldırı arasında geçiş yapar: her yöne mermi halkası ve sana nişanlı yelpaze atış. Her yeni boss'un canı daha fazladır (zamanla da artar), daha çok mermi atar ve daha sık saldırır. 3. boss'tan itibaren dönen bir sarmal mermi yağmuru, 5. boss'tan itibaren de minyon çağırma saldırısı eklenir. Onu yenmek büyük skor bonusu, bol XP, garanti güçlendirme ve bir **hazine sandığı** kazandırır. Sandığın üstüne yürüyünce açılır ve rastgele bir yükseltme bedavaya gelir (açılmış bir evrim varsa o); ekranın üstünde çıkan bir pano tam olarak ne kazandığını gösterir. Her şey sonuna kadar alınmışsa canını tamamen doldurur ve bonus skor verir.
+
+### Tehlike Seviyeleri
+
+Ana menüden tehlike seviyesini seçebilirsin. Herkes Tehlike 0'dan başlar; açtığın en yüksek seviyede 10:00 hayatta kalınca bir sonraki açılır, Tehlike 10'a kadar. Her seviye şunları ekler:
+
+| Seviye başına | Etkisi | Tehlike 10'da |
+| --- | --- | --- |
+| Düşman canı | +%12 (boss'lar dahil) | +%120 |
+| Düşman hasarı | +%8 | +%80 |
+| Doğma hızı | düşmanlar %2.5 daha sık doğar | %25 daha sık |
+| Boss aralığı | boss'lar 1.5 sn daha erken gelir | 45 saniyede bir |
+| Elite'ler | 30 sn daha erken gelir (en erken 3:00), +%1 ihtimal | 3:00'ten itibaren, +%10 |
+| Altın | +%25 | ×3.5 |
+
+Her tehlike seviyesinin kendi en yüksek skoru vardır.
+
+### Altın ve Atölye
+
+Düşmanlar bazen altın külçesi düşürür: sıradan düşmanlar nadiren, elite'ler her zaman, boss'lar bolca. Altın alındığı anda kaydedilir, yani ölünce kaybolmaz. Ana menüdeki **Atölye**'de harcanır. Atölye bilerek küçük tutuldu: her şeyi sonuna kadar almak sadece biraz güç katar, uzun vadeli asıl zorluk tehlike seviyelerinden gelir.
+
+| Atölye geliştirmesi | Etkisi | Maks. |
+| --- | --- | --- |
+| Sağlam Yapı (Sturdy Build) | Seviye başına +4 maksimum can | 5 |
+| Hafif Adım (Light Step) | Seviye başına +%1.2 hareket hızı | 5 |
+| Bilgelik (Wisdom) | Seviye başına +%2 XP | 5 |
+| Açgözlülük (Greed) | Seviye başına +%5 altın | 5 |
+| İkinci Şans (Second Thoughts) | Her oyunda +1 kart yenileme hakkı (seviye atlayınca `R`) | 3 |
+| Geniş Seçim (Wide Choice) | Seviye atlayınca 3 yerine 4 kart çıkar | 1 |
+| Erken Başlangıç (Head Start) | Her oyuna rastgele bir yükseltmeyle başla | 1 |
 
 ### Yükseltmeler
 

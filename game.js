@@ -42,6 +42,7 @@ const sprites = {
     powerup_magnet: loadSprite("powerup_magnet"),
     powerup_bomb: loadSprite("powerup_bomb"),
     powerup_freeze: loadSprite("powerup_freeze"),
+    gold: loadSprite("gold"),
 };
 
 // Resim yüklendi mi? Yüklenmediyse eski daireler çizilir, oyun yine çalışır
@@ -433,8 +434,19 @@ canvas.addEventListener("mousedown", () => {
 
     // Seviye atlama ekranındaysak tıklama kart seçmek içindir, ateş etmek için değil
     if (state === "levelup") {
-        const index = getCardIndexAt(mouse.x, mouse.y);
-        if (index >= 0) chooseUpgrade(index);
+        if (hasRerollButton() && isInRect(mouse.x, mouse.y, getRerollRect())) {
+            rerollChoices();
+        } else {
+            const index = getCardIndexAt(mouse.x, mouse.y);
+            if (index >= 0) chooseUpgrade(index);
+        }
+        return;
+    }
+
+    if (state === "workshop") {
+        const index = getWorkshopCardAt(mouse.x, mouse.y);
+        if (index >= 0) buyWorkshop(WORKSHOP[index]);
+        else if (isInRect(mouse.x, mouse.y, getWorkshopBackRect())) state = "menu";
         return;
     }
 
@@ -452,6 +464,18 @@ canvas.addEventListener("mousedown", () => {
             setLanguage(FLAG_LANGS[flag]);
             return;
         }
+
+        if (isInRect(mouse.x, mouse.y, getWorkshopButtonRect())) {
+            state = "workshop";
+            return;
+        }
+
+        const arrow = getDangerArrowAt(mouse.x, mouse.y);
+        if (arrow !== 0) {
+            setDanger(danger + arrow);
+            return;
+        }
+        if (isInRect(mouse.x, mouse.y, getDangerPanelRect())) return;
     }
 
     mouse.down = true;
@@ -847,12 +871,14 @@ const ELITE_CHANCE_MAX = 0.25;
 const DAMAGE_RAMP_PER_MIN = 0.05;
 
 function getDamageScale() {
-    return 1 + DAMAGE_RAMP_PER_MIN * (gameTime / 60);
+    return (1 + DAMAGE_RAMP_PER_MIN * (gameTime / 60)) * getDangerDamage();
 }
 
 function getEliteChance() {
-    if (gameTime < ELITE_START) return 0;
-    return Math.min(ELITE_CHANCE_MAX, ELITE_CHANCE_START + ELITE_CHANCE_PER_MIN * (gameTime - ELITE_START) / 60);
+    const start = getEliteStart();
+    if (gameTime < start) return 0;
+    const chance = ELITE_CHANCE_START + DANGER_ELITE_CHANCE * danger + ELITE_CHANCE_PER_MIN * (gameTime - start) / 60;
+    return Math.min(ELITE_CHANCE_MAX, chance);
 }
 
 // Düşmanı elite yap: daha büyük, 3 kat can, 1.5 kat hasar, 3 kat ödül
@@ -888,7 +914,7 @@ class Enemy {
         this.y = y;
         this.radius = type.radius;
         this.speed = type.speed;
-        this.health = Math.max(1, Math.round(type.health * scale));
+        this.health = Math.max(1, Math.round(type.health * scale * getDangerHealth()));
         this.maxHealth = this.health;
         this.color = type.color;
         this.score = type.score;
@@ -1111,7 +1137,7 @@ class Boss {
         this.radius = 36;
         this.speed = 50 + number * 5;
         // Can hem boss sırasıyla hem oyun süresiyle artar (geç oyunda saniyeler içinde erimesin)
-        this.maxHealth = Math.round((60 + (number - 1) * 50) * Math.pow(getEnemyScale(), 0.75));
+        this.maxHealth = Math.round((60 + (number - 1) * 50) * Math.pow(getEnemyScale(), 0.75) * getDangerHealth());
         this.health = this.maxHealth;
         this.color = "#c62828";
         this.score = 500 * number;
@@ -1341,6 +1367,32 @@ class XpGem {
     }
 }
 
+class GoldCoin extends XpGem {
+    constructor(x, y, value) {
+        super(x, y, value);
+        this.radius = 7;
+    }
+
+    draw() {
+        const bob = Math.round(Math.sin(this.time * 3) * 2);
+        drawShadow(this.x, this.y + 7, 7, 2.5);
+
+        if (isReady(sprites.gold)) {
+            drawSprite(sprites.gold, Math.round(this.x), Math.round(this.y) + bob);
+        } else {
+            drawCircle(this.x, this.y + bob, this.radius, UI.gold);
+        }
+
+        if ((this.time * 0.5) % 1 < 0.1) {
+            const sx = Math.round(this.x) - 6;
+            const sy = Math.round(this.y) + bob - 5;
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(sx - 1, sy - 3, 2, 6);
+            ctx.fillRect(sx - 3, sy - 1, 6, 2);
+        }
+    }
+}
+
 // Ölen düşmanın XP'sini birkaç kristale böl
 function dropXp(enemy) {
     let remaining = enemy.xp;
@@ -1417,7 +1469,7 @@ function xpNeededFor(lvl) {
 }
 
 function addXp(amount) {
-    xp += amount;
+    xp += amount * getXpMultiplier();
     while (xp >= xpToNext) {
         xp -= xpToNext;
         level++;
@@ -1439,7 +1491,7 @@ function rollUpgradeChoices() {
         [available[i], available[j]] = [available[j], available[i]];
     }
 
-    const choices = available.slice(0, 3);
+    const choices = available.slice(0, 3 + workshopLevel("wide"));
 
     const evolution = available.find((u) => u.evolution);
     if (evolution && !choices.includes(evolution)) {
@@ -1474,6 +1526,22 @@ function openLevelUp() {
     playSound("levelup");
 }
 
+function rerollChoices() {
+    if (rerolls <= 0) return;
+    rerolls--;
+    upgradeChoices = rollUpgradeChoices();
+    playSound("dash");
+}
+
+function hasRerollButton() {
+    return workshopLevel("reroll") > 0;
+}
+
+function getRerollRect() {
+    const w = 210;
+    return { x: (canvas.width - w) / 2, y: 446, w, h: 34 };
+}
+
 function chooseUpgrade(index) {
     const upgrade = upgradeChoices[index];
     if (!upgrade) return;
@@ -1497,14 +1565,18 @@ function chooseUpgrade(index) {
 const CARD_WIDTH = 232;
 const CARD_HEIGHT = 214;
 const CARD_GAP = 28;
+const CARD_WIDTH_WIDE = 206;
+const CARD_GAP_WIDE = 18;
 
 function getCardRect(index, count) {
-    const totalWidth = count * CARD_WIDTH + (count - 1) * CARD_GAP;
+    const width = count > 3 ? CARD_WIDTH_WIDE : CARD_WIDTH;
+    const gap = count > 3 ? CARD_GAP_WIDE : CARD_GAP;
+    const totalWidth = count * width + (count - 1) * gap;
     const startX = (canvas.width - totalWidth) / 2;
     return {
-        x: startX + index * (CARD_WIDTH + CARD_GAP),
+        x: startX + index * (width + gap),
         y: canvas.height / 2 - CARD_HEIGHT / 2 + 40,
-        w: CARD_WIDTH,
+        w: width,
         h: CARD_HEIGHT,
     };
 }
@@ -1594,9 +1666,10 @@ class FloatingText {
         ctx.lineJoin = "round";
         ctx.lineWidth = 4;
         ctx.strokeStyle = UI.shadow;   // okunması için koyu kontur
-        ctx.strokeText(this.text, this.x, this.y);
+        const text = breakLigatures(this.text);
+        ctx.strokeText(text, this.x, this.y);
         ctx.fillStyle = this.color;
-        ctx.fillText(this.text, this.x, this.y);
+        ctx.fillText(text, this.x, this.y);
         ctx.textAlign = "left";
         ctx.globalAlpha = 1;
     }
@@ -1752,6 +1825,7 @@ function detonateBomb() {
 
 function magnetizeGems() {
     for (const gem of xpGems) gem.magnetized = true;
+    for (const coin of golds) coin.magnetized = true;
 }
 
 function applyPowerUp(type) {
@@ -2007,10 +2081,15 @@ const SOUNDS = {
         playNoise(0.9, 0.5);
         playTone("sawtooth", 160, 35, 0.8, 0.18);
     },
+    gold: () => {
+        playTone("square", 1568, 1568, 0.04, 0.035);
+        playTone("square", 2093, 2093, 0.08, 0.035, 0.04);
+    },
+    deny: () => playTone("square", 180, 120, 0.15, 0.06),
 };
 
 // Aynı anda çok sık çalan sesler (vuruş, patlama, XP) birbirini bastırmasın diye kısa bir sınır
-const SOUND_LIMIT = { hit: 0.04, explode: 0.05, smallBoom: 0.06, xp: 0.03, bladeHit: 0.06, spit: 0.08, charge: 0.1, split: 0.06 };
+const SOUND_LIMIT = { hit: 0.04, explode: 0.05, smallBoom: 0.06, xp: 0.03, bladeHit: 0.06, spit: 0.08, charge: 0.1, split: 0.06, gold: 0.05 };
 const lastSoundTime = {};
 
 function playSound(name) {
@@ -2082,14 +2161,225 @@ let bossWarned = false;    // bu boss için uyarı verildi mi?
 // Explosive Rounds patlamaları: { x, y, radius, damage, life, done }
 let explosions = [];
 
+const DANGER_MAX = 10;
+const DANGER_UNLOCK_TIME = 600;
+const DANGER_HEALTH = 0.12;
+const DANGER_DAMAGE = 0.08;
+const DANGER_SPAWN = 0.025;
+const DANGER_BOSS_FASTER = 1.5;
+const DANGER_ELITE_EARLY = 30;
+const DANGER_ELITE_MIN_START = 180;
+const DANGER_ELITE_CHANCE = 0.01;
+
+let dangerUnlocked = loadDangerUnlocked();
+let danger = loadDanger();
+let newDangerUnlocked = false;
+
+function loadDangerUnlocked() {
+    try {
+        const value = Math.floor(Number(localStorage.getItem("incursioDangerUnlocked")) || 0);
+        return Math.max(0, Math.min(DANGER_MAX, value));
+    } catch {
+        return 0;
+    }
+}
+
+function loadDanger() {
+    try {
+        const value = Math.floor(Number(localStorage.getItem("incursioDanger")) || 0);
+        return Math.max(0, Math.min(dangerUnlocked, value));
+    } catch {
+        return 0;
+    }
+}
+
+function setDanger(value) {
+    danger = Math.max(0, Math.min(dangerUnlocked, value));
+    highScore = loadHighScore();
+    try {
+        localStorage.setItem("incursioDanger", danger);
+    } catch {}
+}
+
+function unlockNextDanger() {
+    dangerUnlocked++;
+    newDangerUnlocked = true;
+    try {
+        localStorage.setItem("incursioDangerUnlocked", dangerUnlocked);
+    } catch {}
+    texts.push(new FloatingText(player.x, player.y - 50, T("dangerUnlocked", dangerUnlocked), UI.red));
+    playSound("levelup");
+}
+
+function getDangerHealth() {
+    return 1 + DANGER_HEALTH * danger;
+}
+
+function getDangerDamage() {
+    return 1 + DANGER_DAMAGE * danger;
+}
+
+function getBossInterval() {
+    return BOSS_INTERVAL - DANGER_BOSS_FASTER * danger;
+}
+
+function getEliteStart() {
+    return Math.max(DANGER_ELITE_MIN_START, ELITE_START - DANGER_ELITE_EARLY * danger);
+}
+
+function getDangerColor(level) {
+    if (level === 0) return UI.textDim;
+    const t = level / DANGER_MAX;
+    return `rgb(255, ${Math.round(213 - 154 * t)}, ${Math.round(79 - 20 * t)})`;
+}
+
+const WORKSHOP = [
+    { id: "vitality",  max: 5, cost: 40,  growth: 1.6 },
+    { id: "swift",     max: 5, cost: 40,  growth: 1.6 },
+    { id: "wisdom",    max: 5, cost: 50,  growth: 1.6 },
+    { id: "greed",     max: 5, cost: 60,  growth: 1.6 },
+    { id: "reroll",    max: 3, cost: 80,  growth: 2 },
+    { id: "wide",      max: 1, cost: 300, growth: 1 },
+    { id: "headstart", max: 1, cost: 400, growth: 1 },
+];
+
+const WORKSHOP_HEALTH = 4;
+const WORKSHOP_SPEED = 0.012;
+const WORKSHOP_XP = 0.02;
+const WORKSHOP_GOLD = 0.05;
+const DANGER_GOLD = 0.25;
+
+const GOLD_DROP_CHANCE = 0.03;
+const GOLD_ELITE = 2;
+const GOLD_BOSS_BASE = 8;
+const GOLD_BOSS_PER = 4;
+
+let gold = loadGold();
+let workshopLevels = loadWorkshop();
+let golds = [];
+let runGold = 0;
+let rerolls = 0;
+
+function loadGold() {
+    try {
+        return Math.max(0, Number(localStorage.getItem("incursioGold")) || 0);
+    } catch {
+        return 0;
+    }
+}
+
+function saveGold() {
+    try {
+        localStorage.setItem("incursioGold", gold);
+    } catch {}
+}
+
+function loadWorkshop() {
+    try {
+        const data = JSON.parse(localStorage.getItem("incursioWorkshop") || "{}");
+        return data && typeof data === "object" ? data : {};
+    } catch {
+        return {};
+    }
+}
+
+function saveWorkshop() {
+    try {
+        localStorage.setItem("incursioWorkshop", JSON.stringify(workshopLevels));
+    } catch {}
+}
+
+function getWorkshopItem(id) {
+    return WORKSHOP.find((item) => item.id === id);
+}
+
+function workshopLevel(id) {
+    return Math.max(0, Math.min(getWorkshopItem(id).max, Math.floor(Number(workshopLevels[id]) || 0)));
+}
+
+function workshopCost(item) {
+    return Math.round(item.cost * Math.pow(item.growth, workshopLevel(item.id)));
+}
+
+function buyWorkshop(item) {
+    const lv = workshopLevel(item.id);
+    if (lv >= item.max) return;
+    const cost = workshopCost(item);
+    if (gold < cost) {
+        playSound("deny");
+        return;
+    }
+    gold -= cost;
+    workshopLevels[item.id] = lv + 1;
+    saveGold();
+    saveWorkshop();
+    playSound("powerup");
+}
+
+function getGoldMultiplier() {
+    return (1 + DANGER_GOLD * danger) * (1 + WORKSHOP_GOLD * workshopLevel("greed"));
+}
+
+function getXpMultiplier() {
+    return 1 + WORKSHOP_XP * workshopLevel("wisdom");
+}
+
+function applyWorkshop() {
+    player.maxHealth += WORKSHOP_HEALTH * workshopLevel("vitality");
+    player.health = player.maxHealth;
+    player.displayHealth = player.maxHealth;
+    player.speed *= 1 + WORKSHOP_SPEED * workshopLevel("swift");
+
+    rerolls = workshopLevel("reroll");
+
+    if (workshopLevel("headstart") > 0) {
+        const upgrade = rollUpgradeChoices()[0];
+        if (upgrade) {
+            upgrade.apply(player);
+            upgradeLevels[upgrade.id] = 1;
+            chestReveal = { title: "headstartTitle", upgrade, level: 1, timer: CHEST_REVEAL_TIME };
+        }
+    }
+}
+
+function formatGold(value) {
+    return String(Math.floor(value));
+}
+
+function dropGold(enemy) {
+    let amount = 0;
+    if (enemy.isBoss) amount = GOLD_BOSS_BASE + GOLD_BOSS_PER * enemy.number;
+    else if (enemy.elite) amount = GOLD_ELITE;
+    else if (Math.random() < GOLD_DROP_CHANCE) amount = 1;
+
+    while (amount > 0) {
+        const value = Math.min(amount, enemy.isBoss ? 3 : 1);
+        golds.push(new GoldCoin(enemy.x, enemy.y, value));
+        amount -= value;
+    }
+}
+
+function collectGold(coin) {
+    const amount = coin.value * getGoldMultiplier();
+    runGold += amount;
+    gold += amount;
+    saveGold();
+    spawnParticles(coin.x, coin.y, "#ffd54f", 4);
+    playSound("gold");
+}
+
 let highScore = loadHighScore();
 let newRecord = false;
+
+function highScoreKey() {
+    return danger === 0 ? "shooterHighScore" : "shooterHighScore_" + danger;
+}
 
 // EN YÜKSEK SKOR: tarayıcının hafızasında (localStorage) saklanır,
 // sayfayı kapatıp açsan bile kaybolmaz
 function loadHighScore() {
     try {
-        return Number(localStorage.getItem("shooterHighScore")) || 0;
+        return Number(localStorage.getItem(highScoreKey())) || 0;
     } catch {
         return 0;
     }
@@ -2097,7 +2387,7 @@ function loadHighScore() {
 
 function saveHighScore() {
     try {
-        localStorage.setItem("shooterHighScore", highScore);
+        localStorage.setItem(highScoreKey(), highScore);
     } catch {
         // gizli sekme vb. durumlarda kaydedemezsek oyun yine çalışsın
     }
@@ -2125,6 +2415,7 @@ function startGame() {
     shakeTime = 0;
     damageFlash = 0;
     newRecord = false;
+    newDangerUnlocked = false;
 
     level = 1;
     xp = 0;
@@ -2138,6 +2429,10 @@ function startGame() {
     bossCount = 0;
     bossWarning = 0;
     bossWarned = false;
+
+    golds = [];
+    runGold = 0;
+    applyWorkshop();
 
     state = "playing";
 }
@@ -2212,6 +2507,14 @@ function handleKeyPress(key) {
 
     if (state === "menu" && (key === "enter" || key === " ")) {
         startGame();
+    } else if (state === "menu" && (key === "arrowleft" || key === "a")) {
+        setDanger(danger - 1);
+    } else if (state === "menu" && (key === "arrowright" || key === "d")) {
+        setDanger(danger + 1);
+    } else if (state === "menu" && key === "w") {
+        state = "workshop";
+    } else if (state === "workshop") {
+        if (key === "escape" || key === "w") state = "menu";
     } else if (state === "playing") {
         if (key === "escape" || key === "p") pauseGame();
         if (key === " ") player.tryDash();
@@ -2220,9 +2523,10 @@ function handleKeyPress(key) {
         if (key === "r") startGame();
         if (key === "q") state = "menu";
     } else if (state === "levelup") {
-        if (key === "1" || key === "2" || key === "3") {
+        if (key >= "1" && key <= "4" && key.length === 1) {
             chooseUpgrade(Number(key) - 1);
         }
+        if (key === "r") rerollChoices();
     } else if (state === "gameover") {
         if (key === "r") startGame();
         if (key === "escape") state = "menu";
@@ -2334,7 +2638,8 @@ function getSpawnGroupSize() {
 }
 
 function getSpawnInterval() {
-    return Math.max(BALANCE.spawnMin, BALANCE.spawnStart / (1 + gameTime / BALANCE.spawnRampTime));
+    const interval = Math.max(BALANCE.spawnMin, BALANCE.spawnStart / (1 + gameTime / BALANCE.spawnRampTime));
+    return interval * (1 - DANGER_SPAWN * danger);
 }
 
 function spawnEnemy() {
@@ -2374,6 +2679,7 @@ function killEnemy(enemy) {
     enemy.dead = true;
     score += enemy.score;
     dropXp(enemy);
+    dropGold(enemy);
     maybeDropPowerUp(enemy);
 
     // Lifesteal: her öldürmede biraz can
@@ -2506,6 +2812,10 @@ function update(dt) {
     gameTime += dt;
     spawnInterval = getSpawnInterval();
 
+    if (gameTime >= DANGER_UNLOCK_TIME && danger === dangerUnlocked && dangerUnlocked < DANGER_MAX) {
+        unlockNextDanger();
+    }
+
     // --- Düşman doğurma (boss varken daha yavaş) ---
     spawnTimer += boss ? dt * 0.4 : dt;
     if (spawnTimer >= spawnInterval) {
@@ -2519,12 +2829,12 @@ function update(dt) {
         bossTimer += dt;
 
         // Gelmeden 3 saniye önce uyar
-        if (bossTimer >= BOSS_INTERVAL - 3 && !bossWarned) {
+        if (bossTimer >= getBossInterval() - 3 && !bossWarned) {
             bossWarned = true;
             bossWarning = 3;
             playSound("bossWarning");
         }
-        if (bossTimer >= BOSS_INTERVAL) {
+        if (bossTimer >= getBossInterval()) {
             spawnBoss();
         }
     }
@@ -2535,6 +2845,7 @@ function update(dt) {
     for (const bullet of enemyBullets) bullet.update(dt);
     for (const enemy of enemies) enemy.update(dt);
     for (const gem of xpGems) gem.update(dt);
+    for (const coin of golds) coin.update(dt);
 
     // --- Mermi - düşman çarpışması ---
     for (const bullet of bullets) {
@@ -2662,6 +2973,14 @@ function update(dt) {
         }
     }
 
+    for (const coin of golds) {
+        if (!coin.dead && isColliding(player, coin)) {
+            coin.dead = true;
+            collectGold(coin);
+        }
+    }
+    golds = golds.filter((coin) => !coin.dead);
+
     bullets = bullets.filter((bullet) => !bullet.dead);
     enemyBullets = enemyBullets.filter((bullet) => !bullet.dead);
     enemies = enemies.filter((enemy) => !enemy.dead);
@@ -2703,6 +3022,7 @@ function draw() {
     for (const particle of particles) particle.draw();
     for (const chest of chests) chest.draw();
     for (const gem of xpGems) gem.draw();
+    for (const coin of golds) coin.draw();
     for (const powerUp of powerUps) powerUp.draw();
     for (const bullet of bullets) bullet.draw();
     // Önce bütün gölgeler, sonra düşmanlar: aşağıdaki (bize yakın olan) önde görünsün
@@ -2747,6 +3067,8 @@ function draw() {
         drawPause();
     } else if (state === "menu") {
         drawMenu();
+    } else if (state === "workshop") {
+        drawWorkshop();
     } else {
         drawGameOver();
     }
@@ -2835,7 +3157,7 @@ const STRINGS = {
         warning: "WARNING",
         bossIncoming: "BOSS INCOMING",
         levelUp: "LEVEL UP!",
-        chooseUpgrade: "Choose an upgrade  •  click or press 1, 2, 3",
+        chooseUpgrade: "Choose an upgrade  •  click or press {0}",
         new: "NEW!",
         paused: "PAUSED",
         resume: "Resume   (Esc)",
@@ -2865,6 +3187,23 @@ const STRINGS = {
         evolution: "EVOLUTION",
         chestFull: "FULL HEALTH +{0}",
         chestTitle: "CHEST REWARD",
+        danger: "DANGER {0}",
+        dangerLabel: "Danger",
+        dangerNormal: "Normal difficulty",
+        dangerInfo: "HP +{0}%  •  Damage +{1}%  •  Gold ×{2}",
+        workshop: "WORKSHOP (W)",
+        workshopTitle: "WORKSHOP",
+        workshopHint: "Click a card to buy  •  Gold is kept between runs  •  Esc back",
+        workshopNow: "Now: {0}",
+        maxed: "MAX",
+        back: "Back   (Esc)",
+        goldEarned: "Gold earned",
+        goldTotal: "total {0}",
+        headstartTitle: "HEAD START",
+        reroll: "Reroll (R)  ×{0}",
+        dangerLocked: "Survive {0} on this level to unlock the next",
+        dangerMaxed: "Highest danger level!",
+        dangerUnlocked: "DANGER {0} UNLOCKED!",
         powerup_magnet: "MAGNET",
         powerup_freeze: "FREEZE",
         powerup_bomb: "BOMB",
@@ -2882,7 +3221,7 @@ const STRINGS = {
         warning: "DİKKAT",
         bossIncoming: "BOSS GELİYOR",
         levelUp: "SEVİYE ATLADIN!",
-        chooseUpgrade: "Bir yükseltme seç  •  tıkla ya da 1, 2, 3'e bas",
+        chooseUpgrade: "Bir yükseltme seç  •  tıkla ya da {0}'e bas",
         new: "YENİ!",
         paused: "DURAKLATILDI",
         resume: "Devam et   (Esc)",
@@ -2912,6 +3251,23 @@ const STRINGS = {
         evolution: "EVRİM",
         chestFull: "TAM CAN +{0}",
         chestTitle: "SANDIKTAN ÇIKTI",
+        danger: "TEHLİKE {0}",
+        dangerLabel: "Tehlike",
+        dangerNormal: "Normal zorluk",
+        dangerInfo: "Can +%{0}  •  Hasar +%{1}  •  Altın ×{2}",
+        workshop: "ATÖLYE (W)",
+        workshopTitle: "ATÖLYE",
+        workshopHint: "Satın almak için karta tıkla  •  Altın oyunlar arası birikir  •  Esc geri",
+        workshopNow: "Şu an: {0}",
+        maxed: "MAKS",
+        back: "Geri   (Esc)",
+        goldEarned: "Kazanılan altın",
+        goldTotal: "toplam {0}",
+        headstartTitle: "ERKEN BAŞLANGIÇ",
+        reroll: "Yenile (R)  ×{0}",
+        dangerLocked: "Sonrakini açmak için bu seviyede {0} hayatta kal",
+        dangerMaxed: "En yüksek tehlike seviyesi!",
+        dangerUnlocked: "TEHLİKE {0} AÇILDI!",
         powerup_magnet: "MIKNATIS",
         powerup_freeze: "DONDURMA",
         powerup_bomb: "BOMBA",
@@ -2963,6 +3319,27 @@ const UPGRADE_TEXT = {
         railgun: ["Ray Tüfeği", "Mermiler bütün düşmanları deler, +%25 hasar"],
         frostblades: ["Buz Bıçakları", "+1 bıçak, bıçaklar kestiğini dondurur"],
         detonation: ["İnfilak", "+%10 kritik şansı, kritik vuruşlar patlar"],
+    },
+};
+
+const WORKSHOP_TEXT = {
+    en: {
+        vitality: ["Sturdy Build", "+4 max health per level"],
+        swift: ["Light Step", "+1.2% move speed per level"],
+        wisdom: ["Wisdom", "+2% XP per level"],
+        greed: ["Greed", "+5% gold per level"],
+        reroll: ["Second Thoughts", "+1 card reroll each run"],
+        wide: ["Wide Choice", "Level-ups offer 4 cards instead of 3"],
+        headstart: ["Head Start", "Start every run with a random upgrade"],
+    },
+    tr: {
+        vitality: ["Sağlam Yapı", "Seviye başına +4 maksimum can"],
+        swift: ["Hafif Adım", "Seviye başına +%1.2 hareket hızı"],
+        wisdom: ["Bilgelik", "Seviye başına +%2 XP"],
+        greed: ["Açgözlülük", "Seviye başına +%5 altın"],
+        reroll: ["İkinci Şans", "Her oyunda +1 kart yenileme hakkı"],
+        wide: ["Geniş Seçim", "Seviye atlayınca 3 yerine 4 kart çıkar"],
+        headstart: ["Erken Başlangıç", "Her oyuna rastgele bir yükseltmeyle başla"],
     },
 };
 
@@ -3194,8 +3571,13 @@ function drawPanel(x, y, w, h, fill = UI.inner) {
     ctx.fillRect(x + w + 1, y + h + 1, 2, 2);
 }
 
+function breakLigatures(text) {
+    return String(text).replace(/f(?=[fiılt])/g, "f‌");
+}
+
 // Gölgeli yazı (y = yazının dikey ortası)
 function drawText(text, x, y, size, color, align = "left", bold = false) {
+    text = breakLigatures(text);
     ctx.font = font(size, bold);
     ctx.textAlign = align;
     ctx.textBaseline = "middle";
@@ -3255,6 +3637,18 @@ const ICONS = {
         map: ["0001000", "0011100", "1111111", "0111110", "0110110", "1100011"],
         colors: { 1: "#4dd0e1" },
     },
+    skull: {
+        map: ["0111110", "1111111", "1221221", "1111111", "0112110", "0111110", "0101010"],
+        colors: { 1: "#efe6d8", 2: "#2a1a0c" },
+    },
+    lock: {
+        map: ["0011100", "0100010", "0100010", "1111111", "1112111", "1112111", "1111111"],
+        colors: { 1: "#8a7a64", 2: "#2a1a0c" },
+    },
+    ingot: {
+        map: ["0111110", "1333331", "1111111", "1222221", "1222221", "1111111"],
+        colors: { 1: "#a8740f", 2: "#ffd54f", 3: "#fff3a0" },
+    },
 };
 
 function drawIcon(icon, x, y, scale = 2) {
@@ -3301,7 +3695,7 @@ function drawBar(x, y, w, h, ratio, color, lightColor, darkColor) {
 // =====================================================
 function drawHUD() {
     // --- Sol üst: can, skor ve süre ---
-    drawPanel(16, 16, 262, 66);
+    drawPanel(16, 16, 262, 88);
     drawIcon(ICONS.heart, 24, 25, 2);
     drawHealthBar(46, 23, 224, 16);
 
@@ -3310,8 +3704,12 @@ function drawHUD() {
     drawIcon(ICONS.hourglass, 176, 52, 2);
     drawText(formatTime(gameTime), 198, 59, 18, UI.text, "left", true);
 
+    drawIcon(ICONS.ingot, 24, 78, 2);
+    drawText(formatGold(runGold), 46, 84, 16, UI.gold, "left", true);
+    drawText(T("goldTotal", formatGold(gold)), 270, 84, 12, UI.textDim, "right");
+
     // --- Aktif güçlendirmeler: küçük paneller, altlarında kalan süre çubuğu ---
-    let y = 96;
+    let y = 118;
     for (const type in player.powerTimers) {
         const timeLeft = player.powerTimers[type];
         if (timeLeft <= 0) continue;
@@ -3390,12 +3788,14 @@ function drawChestReveal() {
 
     drawPanel(x, y, w, h, upgrade && upgrade.evolution ? "rgba(44, 24, 56, 0.97)" : "rgba(30, 20, 10, 0.97)");
 
-    if (isReady(sprites.chest_open)) {
+    if (chestReveal.title) {
+        drawIcon(ICONS.star, x + 20, y + (h - 36) / 2, 5);
+    } else if (isReady(sprites.chest_open)) {
         ctx.drawImage(sprites.chest_open, x + 14, y + (h - 42) / 2, 48, 42);
     }
 
     const tx = x + 78;
-    drawText(T("chestTitle"), tx, y + 16, 12, color, "left", true);
+    drawText(T(chestReveal.title || "chestTitle"), tx, y + 16, 12, color, "left", true);
 
     if (upgrade) {
         const tag = upgrade.evolution ? T("evolution") : T("lv") + " " + chestReveal.level + "/" + upgrade.max;
@@ -3513,10 +3913,16 @@ function drawMinimap() {
     ctx.fillRect(x + player.x * scale - 2, y + player.y * scale - 2, 4, 4);
 
     // Mini haritanın altında rekor ve ses durumu
-    drawText(T("best", highScore), x + w, y + h + 18, 14, UI.textDim, "right", true);
-    drawText(T("autofire", autofire ? T("on") : T("off")), x + w, y + h + 36, 12, autofire ? UI.cyan : UI.textDim, "right");
+    let ty = y + h + 18;
+    drawText(T("best", highScore), x + w, ty, 14, UI.textDim, "right", true);
+    if (danger > 0) {
+        ty += 18;
+        drawText(T("danger", danger), x + w, ty, 12, getDangerColor(danger), "right", true);
+    }
+    ty += 18;
+    drawText(T("autofire", autofire ? T("on") : T("off")), x + w, ty, 12, autofire ? UI.cyan : UI.textDim, "right");
     if (muted) {
-        drawText(T("soundOff"), x + w, y + h + 52, 12, UI.textDim, "right");
+        drawText(T("soundOff"), x + w, ty + 16, 12, UI.textDim, "right");
     }
 }
 
@@ -3544,7 +3950,10 @@ function drawLevelUp() {
     dimScreen(0.7);
 
     drawCenteredText(T("levelUp"), 86, 42, UI.gold, true);
-    drawCenteredText(T("chooseUpgrade"), 122, 15, UI.textDim);
+    const keyList = upgradeChoices.map((_, i) => i + 1).join(", ");
+    drawCenteredText(T("chooseUpgrade", keyList), 122, 15, UI.textDim);
+
+    drawRerollButton();
 
     const hovered = getCardIndexAt(mouse.x, mouse.y);
 
@@ -3610,6 +4019,20 @@ function drawLevelUp() {
     });
 }
 
+function drawRerollButton() {
+    if (!hasRerollButton()) return;
+    const r = getRerollRect();
+    const enabled = rerolls > 0;
+    const hovered = enabled && isInRect(mouse.x, mouse.y, r);
+
+    if (hovered) {
+        ctx.fillStyle = UI.gold;
+        ctx.fillRect(r.x - 6, r.y - 6, r.w + 12, r.h + 12);
+    }
+    drawPanel(r.x, r.y, r.w, r.h, hovered ? "#6b4420" : UI.inner);
+    drawText(T("reroll", rerolls), r.x + r.w / 2, r.y + r.h / 2, 14, enabled ? UI.text : "#5a4a38", "center", true);
+}
+
 function drawPause() {
     dimScreen(0.65);
 
@@ -3619,6 +4042,7 @@ function drawPause() {
     const py = 100;
     drawPanel(px, py, pw, ph);
     drawCenteredText(T("paused"), py + 44, 34, UI.text, true);
+    if (danger > 0) drawCenteredText(T("danger", danger), py + 76, 14, getDangerColor(danger), true);
 
     // Butonlar
     const hovered = getPauseButtonAt(mouse.x, mouse.y);
@@ -3676,6 +4100,191 @@ function drawLogo(y) {
     ctx.textAlign = "left";
 }
 
+function isInRect(x, y, r) {
+    return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+}
+
+function getDangerPanelRect() {
+    const w = 420;
+    return { x: (canvas.width - w) / 2, y: canvas.height / 2 + 140, w, h: 50 };
+}
+
+function getDangerArrowRect(dir) {
+    const p = getDangerPanelRect();
+    const w = 34;
+    return { x: dir < 0 ? p.x + 8 : p.x + p.w - 8 - w, y: p.y + 8, w, h: p.h - 16 };
+}
+
+function getDangerArrowAt(x, y) {
+    if (isInRect(x, y, getDangerArrowRect(-1))) return -1;
+    if (isInRect(x, y, getDangerArrowRect(1))) return 1;
+    return 0;
+}
+
+function drawArrow(cx, cy, dir, color) {
+    ctx.fillStyle = color;
+    for (let i = 0; i < 5; i++) {
+        ctx.fillRect(Math.round(cx + dir * (i * 2 - 4) - 1), Math.round(cy - (4 - i) * 2 - 1), 2, (4 - i) * 4 + 2);
+    }
+}
+
+function drawDangerSelector() {
+    const p = getDangerPanelRect();
+    const hovered = getDangerArrowAt(mouse.x, mouse.y);
+    const atTop = danger >= dangerUnlocked;
+
+    drawPanel(p.x, p.y, p.w, p.h);
+
+    for (const dir of [-1, 1]) {
+        const r = getDangerArrowRect(dir);
+        const enabled = dir < 0 ? danger > 0 : !atTop;
+        const lit = enabled && hovered === dir;
+        drawPanel(r.x, r.y, r.w, r.h, lit ? "#6b4420" : UI.woodDark);
+        if (dir > 0 && atTop && danger < DANGER_MAX) {
+            drawIcon(ICONS.lock, r.x + r.w / 2 - 7, r.y + r.h / 2 - 7, 2);
+        } else {
+            drawArrow(r.x + r.w / 2, r.y + r.h / 2, dir, lit ? UI.gold : enabled ? UI.text : "#5a4a38");
+        }
+    }
+
+    const title = T("danger", danger);
+    ctx.font = font(18, true);
+    const tx = canvas.width / 2 - ctx.measureText(title).width / 2 + 11;
+    drawIcon(ICONS.skull, tx - 24, p.y + 8, 2);
+    drawText(title, tx, p.y + 16, 18, danger === 0 ? UI.text : getDangerColor(danger), "left", true);
+
+    let info = danger === 0 ? T("dangerNormal") : T("dangerInfo", Math.round(DANGER_HEALTH * danger * 100), Math.round(DANGER_DAMAGE * danger * 100), 1 + DANGER_GOLD * danger);
+    let infoColor = UI.textDim;
+    if (hovered === 1 && atTop) {
+        info = danger >= DANGER_MAX ? T("dangerMaxed") : T("dangerLocked", formatTime(DANGER_UNLOCK_TIME));
+        infoColor = danger >= DANGER_MAX ? UI.gold : UI.red;
+    }
+    drawText(info, canvas.width / 2, p.y + 36, 12, infoColor, "center");
+}
+
+function getWorkshopButtonRect() {
+    return { x: 24, y: 24, w: 170, h: 40 };
+}
+
+function drawWorkshopButton() {
+    const r = getWorkshopButtonRect();
+    const hovered = isInRect(mouse.x, mouse.y, r);
+    if (hovered) {
+        ctx.fillStyle = UI.gold;
+        ctx.fillRect(r.x - 8, r.y - 8, r.w + 16, r.h + 16);
+    }
+    drawPanel(r.x, r.y, r.w, r.h, hovered ? "#6b4420" : UI.inner);
+    drawText(T("workshop"), r.x + 10, r.y + 12, 15, hovered ? UI.gold : UI.text, "left", true);
+    drawIcon(ICONS.ingot, r.x + 10, r.y + 23, 2);
+    drawText(formatGold(gold), r.x + 30, r.y + 29, 13, UI.gold, "left", true);
+}
+
+const WORKSHOP_CARD_W = 200;
+const WORKSHOP_CARD_H = 158;
+const WORKSHOP_GAP = 20;
+const WORKSHOP_PER_ROW = 4;
+
+function getWorkshopCardRect(index) {
+    const row = Math.floor(index / WORKSHOP_PER_ROW);
+    const col = index % WORKSHOP_PER_ROW;
+    const count = Math.min(WORKSHOP_PER_ROW, WORKSHOP.length - row * WORKSHOP_PER_ROW);
+    const total = count * WORKSHOP_CARD_W + (count - 1) * WORKSHOP_GAP;
+    return {
+        x: (canvas.width - total) / 2 + col * (WORKSHOP_CARD_W + WORKSHOP_GAP),
+        y: 110 + row * (WORKSHOP_CARD_H + 24),
+        w: WORKSHOP_CARD_W,
+        h: WORKSHOP_CARD_H,
+    };
+}
+
+function getWorkshopCardAt(x, y) {
+    for (let i = 0; i < WORKSHOP.length; i++) {
+        if (isInRect(x, y, getWorkshopCardRect(i))) return i;
+    }
+    return -1;
+}
+
+function getWorkshopBackRect() {
+    return { x: (canvas.width - 200) / 2, y: 478, w: 200, h: 38 };
+}
+
+function formatPercent(value) {
+    const rounded = Math.round(value * 10) / 10;
+    return language === "tr" ? "+%" + rounded : "+" + rounded + "%";
+}
+
+function workshopEffect(item, lv) {
+    if (item.id === "vitality") return "+" + WORKSHOP_HEALTH * lv;
+    if (item.id === "swift") return formatPercent(WORKSHOP_SPEED * lv * 100);
+    if (item.id === "wisdom") return formatPercent(WORKSHOP_XP * lv * 100);
+    if (item.id === "greed") return formatPercent(WORKSHOP_GOLD * lv * 100);
+    if (item.max === 1) return lv > 0 ? T("on") : T("off");
+    return "×" + lv;
+}
+
+function drawWorkshop() {
+    dimScreen(0.75);
+
+    drawCenteredText(T("workshopTitle"), 46, 38, UI.gold, true);
+    drawCenteredText(T("workshopHint"), 82, 14, UI.textDim);
+
+    const gw = 140;
+    const gx = canvas.width - gw - 24;
+    drawPanel(gx, 24, gw, 34);
+    drawIcon(ICONS.ingot, gx + 10, 35, 2);
+    drawText(formatGold(gold), gx + gw - 10, 41, 18, UI.gold, "right", true);
+
+    const hovered = getWorkshopCardAt(mouse.x, mouse.y);
+
+    WORKSHOP.forEach((item, i) => {
+        const r = getWorkshopCardRect(i);
+        const cx = r.x + r.w / 2;
+        const lv = workshopLevel(item.id);
+        const maxed = lv >= item.max;
+        const cost = workshopCost(item);
+        const affordable = !maxed && gold >= cost;
+        const isHovered = i === hovered;
+        const [name, desc] = WORKSHOP_TEXT[language][item.id];
+
+        if (isHovered && !maxed) {
+            ctx.fillStyle = affordable ? UI.gold : "#5a3a1c";
+            ctx.fillRect(r.x - 8, r.y - 8, r.w + 16, r.h + 16);
+        }
+        drawPanel(r.x, r.y, r.w, r.h, isHovered && affordable ? "rgba(70, 44, 20, 0.96)" : "rgba(30, 20, 10, 0.94)");
+
+        drawText(name, cx, r.y + 20, 17, UI.text, "center", true);
+        ctx.fillStyle = UI.woodDark;
+        ctx.fillRect(r.x + 20, r.y + 36, r.w - 40, 2);
+        ctx.fillStyle = UI.woodLight;
+        ctx.fillRect(r.x + 20, r.y + 36, r.w - 40, 1);
+        drawWrappedText(desc, cx, r.y + 54, r.w - 24, 16, 13, UI.textDim);
+        drawText(T("workshopNow", workshopEffect(item, lv)), cx, r.y + 96, 12, UI.cyan, "center", true);
+
+        const pip = 10;
+        const gap = 4;
+        let px = cx - (item.max * pip + (item.max - 1) * gap) / 2;
+        for (let p = 0; p < item.max; p++) {
+            ctx.fillStyle = UI.line;
+            ctx.fillRect(px - 1, r.y + 111, pip + 2, pip + 2);
+            ctx.fillStyle = p < lv ? UI.gold : "#1a120a";
+            ctx.fillRect(px, r.y + 112, pip, pip);
+            px += pip + gap;
+        }
+
+        if (maxed) {
+            drawText(T("maxed"), cx, r.y + r.h - 16, 15, UI.gold, "center", true);
+        } else {
+            const text = String(cost);
+            ctx.font = font(15, true);
+            const left = cx - (ctx.measureText(text).width + 20) / 2;
+            drawIcon(ICONS.ingot, left, r.y + r.h - 22, 2);
+            drawText(text, left + 20, r.y + r.h - 16, 15, affordable ? UI.gold : UI.red, "left", true);
+        }
+    });
+
+    drawButton(getWorkshopBackRect(), T("back"), isInRect(mouse.x, mouse.y, getWorkshopBackRect()));
+}
+
 function drawMenu() {
     dimScreen(0.5);
 
@@ -3699,8 +4308,11 @@ function drawMenu() {
     ctx.font = font(18, true);
     const sw = ctx.measureText(scoreText).width;
     const sx = canvas.width / 2 - sw / 2 + 12;
-    drawIcon(ICONS.crown, sx - 24, cy + 151, 2);
-    drawText(scoreText, sx, cy + 156, 18, UI.gold, "left", true);
+    drawIcon(ICONS.crown, sx - 24, cy + 211, 2);
+    drawText(scoreText, sx, cy + 216, 18, UI.gold, "left", true);
+
+    drawDangerSelector();
+    drawWorkshopButton();
 
     // Dil seçimi: sağ üstte bayraklar
     drawFlags();
@@ -3709,8 +4321,9 @@ function drawMenu() {
 function drawGameOver() {
     dimScreen(0.65);
 
+    const extra = newDangerUnlocked ? 30 : 0;
     const pw = 420;
-    const ph = 300;
+    const ph = 330 + extra;
     const px = (canvas.width - pw) / 2;
     const py = (canvas.height - ph) / 2;
     drawPanel(px, py, pw, ph);
@@ -3723,9 +4336,11 @@ function drawGameOver() {
         [ICONS.hourglass, T("survived"), formatTime(gameTime), UI.text],
         [ICONS.star, T("level"), String(level), UI.cyan],
         [ICONS.crown, T("bossesDefeated"), String(Math.max(0, bossCount - (boss ? 1 : 0))), UI.text],
+        [ICONS.skull, T("dangerLabel"), String(danger), danger === 0 ? UI.text : getDangerColor(danger)],
+        [ICONS.ingot, T("goldEarned"), "+" + formatGold(runGold), UI.gold],
     ];
     rows.forEach(([icon, label, value, color], i) => {
-        const ry = py + 88 + i * 30;
+        const ry = py + 84 + i * 26;
         drawIcon(icon, px + 40, ry - 7, 2);
         drawText(label, px + 66, ry, 16, UI.textDim);
         drawText(value, px + pw - 40, ry, 18, color, "right", true);
@@ -3734,13 +4349,17 @@ function drawGameOver() {
     // Rekor
     if (newRecord) {
         ctx.globalAlpha = 0.65 + Math.sin(performance.now() / 200) * 0.35;
-        drawCenteredText(T("newHighScore"), py + 222, 22, UI.gold, true);
+        drawCenteredText(T("newHighScore"), py + 252, 22, UI.gold, true);
         ctx.globalAlpha = 1;
     } else {
-        drawCenteredText(T("bestScore", highScore), py + 222, 16, UI.textDim);
+        drawCenteredText(T("bestScore", highScore), py + 252, 16, UI.textDim);
     }
 
-    drawCenteredText(T("gameOverPrompt"), py + 266, 16, UI.text, true);
+    if (newDangerUnlocked) {
+        drawCenteredText(T("dangerUnlocked", dangerUnlocked), py + 282, 20, UI.red, true);
+    }
+
+    drawCenteredText(T("gameOverPrompt"), py + 296 + extra, 16, UI.text, true);
 }
 
 

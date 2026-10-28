@@ -32,8 +32,11 @@ I used AI tools during development to speed things up, explain concepts and help
 | Left click (hold) | Shoot |
 | `F` | Toggle autofire (on by default) |
 | `Space` | Dash (after unlocking the Dash upgrade) |
-| `1` `2` `3` / Click | Choose an upgrade on level up |
+| `1` `2` `3` (`4`) / Click | Choose an upgrade on level up |
+| `R` (level up) | Reroll the cards (after unlocking it in the Workshop) |
 | `Enter` / Click | Start game |
+| `←` `→` / `A` `D` / Click arrows | Choose danger level on the main menu |
+| `W` (main menu) | Open the Workshop |
 | `R` | Play again after game over |
 | `Esc` / `P` | Pause / resume |
 | `R` / `Q` (paused) | Restart / quit to menu |
@@ -57,7 +60,9 @@ I used AI tools during development to speed things up, explain concepts and help
 - **Damage numbers** pop up on every hit; critical hits show bigger orange numbers
 - **Game feel effects**: particle explosions, screen shake, damage flash and floating text
 - **Procedural sound effects** generated in real time with the Web Audio API — no audio files
-- **Persistent high score** saved in the browser with `localStorage`
+- **Danger levels 0–10**: survive 10 minutes to unlock the next, tougher level
+- **Gold and Workshop**: collect gold during runs and spend it on permanent upgrades between runs
+- **Persistent high score** for each danger level, saved in the browser with `localStorage`
 - **Game states**: start menu, pause menu, level-up and game over screens
 - **English and Turkish** — switch languages by clicking the flags on the main menu
 - **Autofire** — shoots toward your cursor without holding the mouse (toggle with `F`)
@@ -79,6 +84,35 @@ All enemy damage increases by 5% every minute, so a maxed-out build still has to
 ### Boss
 
 A crowned giant appears every 60 seconds after a warning. It slowly chases you and alternates between two attacks: a ring of bullets in every direction and an aimed spread shot. Each new boss has more health (also scaling with time), fires more bullets and attacks more often. From the 3rd boss on it adds a spinning spiral barrage, and from the 5th it summons minions. Defeating it gives a big score bonus, lots of XP, guaranteed power-ups and a **treasure chest**. Walk over the chest to open it and get a free random upgrade (an evolution if one is unlocked); a banner at the top of the screen shows exactly what you got. If everything is maxed, it fully heals you and gives bonus score.
+
+### Danger Levels
+
+Pick a danger level on the main menu. Everyone starts at Danger 0; surviving 10:00 on your highest unlocked level unlocks the next one, up to Danger 10. Each level adds:
+
+| Per level | Effect | At Danger 10 |
+| --- | --- | --- |
+| Enemy health | +12% (bosses too) | +120% |
+| Enemy damage | +8% | +80% |
+| Spawn rate | enemies spawn 2.5% more often | 25% more often |
+| Boss interval | bosses arrive 1.5 s sooner | every 45 s |
+| Elites | appear 30 s earlier (from 3:00 at the earliest), +1% chance | from 3:00, +10% |
+| Gold | +25% | ×3.5 |
+
+Every danger level keeps its own high score.
+
+### Gold and Workshop
+
+Enemies sometimes drop gold bars: ordinary enemies rarely, elites always, bosses a lot. Gold is saved as soon as you pick it up, so dying never loses it. Spend it in the **Workshop** on the main menu. The Workshop is deliberately small: maxing everything adds only a little power, so the real long-term challenge comes from the danger levels.
+
+| Workshop upgrade | Effect | Max |
+| --- | --- | --- |
+| Sturdy Build | +4 max health per level | 5 |
+| Light Step | +1.2% move speed per level | 5 |
+| Wisdom | +2% XP per level | 5 |
+| Greed | +5% gold per level | 5 |
+| Second Thoughts | +1 card reroll each run (`R` on level up) | 3 |
+| Wide Choice | Level-ups offer 4 cards instead of 3 | 1 |
+| Head Start | Start every run with a random upgrade | 1 |
 
 ### Upgrades
 

@@ -37,11 +37,23 @@ I used AI tools during development to speed things up, explain concepts and help
 | `Enter` / Click | Start game |
 | `←` `→` / `A` `D` / Click arrows | Choose danger level on the main menu |
 | `W` (main menu) | Open the Workshop |
-| `R` | Play again after game over |
+| `R` / Click | Play again after game over |
 | `Esc` / `P` | Pause / resume |
 | `R` / `Q` (paused) | Restart / quit to menu |
 | `Esc` (game over) | Back to menu |
 | `M` | Mute / unmute sound |
+
+### Touch (phones and tablets)
+
+| Touch | Action |
+| --- | --- |
+| Drag on the left side | Move with a floating joystick |
+| Automatic | Aims at the nearest enemy and fires |
+| Dash button (bottom right) | Dash (after unlocking the Dash upgrade) |
+| Pause button (top right) | Pause; sound can be toggled from the pause menu |
+| Tap | Menus, cards, Workshop and buttons |
+
+Play with your phone held sideways; the game goes fullscreen when you start it (where the browser allows).
 
 ## Features
 
@@ -64,6 +76,7 @@ I used AI tools during development to speed things up, explain concepts and help
 - **Gold and Workshop**: collect gold during runs and spend it on permanent upgrades between runs
 - **Persistent high score** for each danger level, saved in the browser with `localStorage`
 - **Game states**: start menu, pause menu, level-up and game over screens
+- **Mobile support**: touch joystick, automatic aiming and a screen that scales to fit any device
 - **English and Turkish** — switch languages by clicking the flags on the main menu
 - **Autofire** — shoots toward your cursor without holding the mouse (toggle with `F`)
 

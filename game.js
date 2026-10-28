@@ -423,13 +423,150 @@ window.addEventListener("keyup", (e) => {
 // down: fare tuşu şu an basılı mı? (otomatik ateş için)
 const mouse = { x: 0, y: 0, down: false };
 
-canvas.addEventListener("mousemove", (e) => {
+function toCanvasPoint(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
-    mouse.x = (e.clientX - rect.left) * (canvas.width / rect.width);
-    mouse.y = (e.clientY - rect.top) * (canvas.height / rect.height);
+    return {
+        x: (clientX - rect.left) * (canvas.width / rect.width),
+        y: (clientY - rect.top) * (canvas.height / rect.height),
+    };
+}
+
+canvas.addEventListener("mousemove", (e) => {
+    const p = toCanvasPoint(e.clientX, e.clientY);
+    mouse.x = p.x;
+    mouse.y = p.y;
 });
 
-canvas.addEventListener("mousedown", () => {
+canvas.addEventListener("mousedown", (e) => {
+    touchMode = false;
+    const p = toCanvasPoint(e.clientX, e.clientY);
+    mouse.x = p.x;
+    mouse.y = p.y;
+    handlePress();
+});
+
+let touchMode = false;
+let joystick = null;
+const JOYSTICK_RADIUS = 56;
+const JOYSTICK_DEADZONE = 0.15;
+const TOUCH_AIM_RANGE = 560;
+const DASH_BUTTON = { x: canvas.width - 84, y: canvas.height - 104, r: 38 };
+
+canvas.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    touchMode = true;
+    initAudio();
+
+    for (const touch of e.changedTouches) {
+        const p = toCanvasPoint(touch.clientX, touch.clientY);
+        if (state === "playing") {
+            handlePlayTouch(touch.identifier, p);
+        } else {
+            if (state === "menu") tryFullscreen();
+            mouse.x = p.x;
+            mouse.y = p.y;
+            handlePress();
+            mouse.down = false;
+        }
+    }
+}, { passive: false });
+
+canvas.addEventListener("touchmove", (e) => {
+    e.preventDefault();
+    for (const touch of e.changedTouches) {
+        if (!joystick || touch.identifier !== joystick.id) continue;
+        const p = toCanvasPoint(touch.clientX, touch.clientY);
+        joystick.x = p.x;
+        joystick.y = p.y;
+        const dx = p.x - joystick.baseX;
+        const dy = p.y - joystick.baseY;
+        const distance = Math.hypot(dx, dy);
+        if (distance > JOYSTICK_RADIUS) {
+            joystick.baseX = p.x - (dx / distance) * JOYSTICK_RADIUS;
+            joystick.baseY = p.y - (dy / distance) * JOYSTICK_RADIUS;
+        }
+    }
+}, { passive: false });
+
+function endTouch(e) {
+    e.preventDefault();
+    for (const touch of e.changedTouches) {
+        if (joystick && touch.identifier === joystick.id) joystick = null;
+    }
+    if (e.touches.length === 0) {
+        mouse.x = -1000;
+        mouse.y = -1000;
+    }
+}
+
+canvas.addEventListener("touchend", endTouch, { passive: false });
+canvas.addEventListener("touchcancel", endTouch, { passive: false });
+
+function handlePlayTouch(id, p) {
+    if (isInRect(p.x, p.y, getTouchPauseRect())) {
+        pauseGame();
+        return;
+    }
+    if (player.dashLevel > 0 && Math.hypot(p.x - DASH_BUTTON.x, p.y - DASH_BUTTON.y) < DASH_BUTTON.r + 12) {
+        player.tryDash();
+        return;
+    }
+    if (!joystick && p.x < canvas.width * 0.6) {
+        joystick = { id, baseX: p.x, baseY: p.y, x: p.x, y: p.y };
+    }
+}
+
+function getTouchPauseRect() {
+    return { x: canvas.width - 168 - 16 - 16 - 40, y: 16, w: 40, h: 40 };
+}
+
+function tryFullscreen() {
+    const el = document.documentElement;
+    if (!el || !el.requestFullscreen || document.fullscreenElement) return;
+    el.requestFullscreen()
+        .then(() => {
+            if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {});
+        })
+        .catch(() => {});
+}
+
+function isPortrait() {
+    return typeof window.innerHeight === "number" && window.innerHeight > window.innerWidth;
+}
+
+function getMoveInput() {
+    const x = (keys["d"] ? 1 : 0) - (keys["a"] ? 1 : 0);
+    const y = (keys["s"] ? 1 : 0) - (keys["w"] ? 1 : 0);
+    const length = Math.hypot(x, y);
+    if (length > 0) return { x: x / length, y: y / length };
+
+    if (joystick) {
+        const jx = (joystick.x - joystick.baseX) / JOYSTICK_RADIUS;
+        const jy = (joystick.y - joystick.baseY) / JOYSTICK_RADIUS;
+        const m = Math.hypot(jx, jy);
+        if (m > JOYSTICK_DEADZONE) {
+            const strength = Math.min(1, m);
+            return { x: (jx / m) * strength, y: (jy / m) * strength };
+        }
+    }
+    return { x: 0, y: 0 };
+}
+
+function findAimTarget(from) {
+    let best = null;
+    let bestDistance = TOUCH_AIM_RANGE;
+    for (const enemy of enemies) {
+        if (enemy.dead) continue;
+        const distance = Math.hypot(enemy.x - from.x, enemy.y - from.y);
+        if (distance < bestDistance) {
+            best = enemy;
+            bestDistance = distance;
+        }
+    }
+    return best;
+}
+
+function handlePress() {
     initAudio();
 
     // Seviye atlama ekranındaysak tıklama kart seçmek içindir, ateş etmek için değil
@@ -478,9 +615,16 @@ canvas.addEventListener("mousedown", () => {
         if (isInRect(mouse.x, mouse.y, getDangerPanelRect())) return;
     }
 
+    if (state === "gameover") {
+        const button = getGameOverButtonAt(mouse.x, mouse.y);
+        if (button === 0) startGame();
+        else if (button === 1) state = "menu";
+        return;
+    }
+
     mouse.down = true;
     if (state === "menu") startGame(); // menüdeyken tıklayınca oyun başlasın
-});
+}
 
 // window'a bağlıyoruz: fareyi canvas dışında bıraksan bile ateş dursun
 window.addEventListener("mouseup", () => {
@@ -556,8 +700,9 @@ class Player {
     tryDash() {
         if (this.dashLevel === 0 || this.dashCooldown > 0 || this.dashTime > 0) return;
 
-        let dx = (keys["d"] ? 1 : 0) - (keys["a"] ? 1 : 0);
-        let dy = (keys["s"] ? 1 : 0) - (keys["w"] ? 1 : 0);
+        const move = getMoveInput();
+        let dx = move.x;
+        let dy = move.y;
         if (dx === 0 && dy === 0) {
             dx = Math.cos(this.angle);
             dy = Math.sin(this.angle);
@@ -573,18 +718,9 @@ class Player {
     }
 
     update(dt) {
-        let dx = 0;
-        let dy = 0;
-        if (keys["w"]) dy -= 1;
-        if (keys["s"]) dy += 1;
-        if (keys["a"]) dx -= 1;
-        if (keys["d"]) dx += 1;
-
-        const length = Math.hypot(dx, dy);
-        if (length > 0) {
-            dx /= length;
-            dy /= length;
-        }
+        const move = getMoveInput();
+        const dx = move.x;
+        const dy = move.y;
 
         this.dashCooldown = Math.max(0, this.dashCooldown - dt);
 
@@ -608,9 +744,15 @@ class Player {
         clampToWorld(this); // çitin içinde kal
 
         // Fare ekranda, oyuncu dünyada: farenin dünyadaki yerini bulmak için kamerayı ekle
-        const aimX = mouse.x + camera.x;
-        const aimY = mouse.y + camera.y;
-        this.angle = Math.atan2(aimY - this.y, aimX - this.x);
+        let hasTarget = true;
+        if (touchMode) {
+            const target = findAimTarget(this);
+            hasTarget = target !== null;
+            if (target) this.angle = Math.atan2(target.y - this.y, target.x - this.x);
+            else if (dx !== 0 || dy !== 0) this.angle = Math.atan2(dy, dx);
+        } else {
+            this.angle = Math.atan2(mouse.y + camera.y - this.y, mouse.x + camera.x - this.x);
+        }
 
         this.time += dt;
         this.invincibleTimer = Math.max(0, this.invincibleTimer - dt);
@@ -639,7 +781,8 @@ class Player {
         const currentFireRate = this.powerTimers.rapid > 0 ? this.fireRate * 0.4 : this.fireRate;
 
         this.fireTimer -= dt;
-        if ((mouse.down || autofire) && this.fireTimer <= 0) {
+        const wantsFire = touchMode ? hasTarget : mouse.down || autofire;
+        if (wantsFire && this.fireTimer <= 0) {
             this.shoot();
             this.fireTimer = currentFireRate;
         }
@@ -2432,6 +2575,7 @@ function startGame() {
 
     golds = [];
     runGold = 0;
+    joystick = null;
     applyWorkshop();
 
     state = "playing";
@@ -2456,6 +2600,7 @@ function pauseGame() {
     mouse.down = false;
     // Basılı kalmış tuşları bırak, yoksa devam edince oyuncu kendi kendine yürür
     for (const key in keys) keys[key] = false;
+    joystick = null;
 }
 
 function resumeGame() {
@@ -2468,6 +2613,7 @@ const PAUSE_BUTTONS = [
     { label: "resume",   action: () => resumeGame() },   // yazılar STRINGS'ten (iki dilde)
     { label: "restart",  action: () => startGame() },
     { label: "mainMenu", action: () => { state = "menu"; } },
+    { label: () => T("soundButton", muted ? T("off") : T("on")), action: () => toggleMute() },
 ];
 
 const BUTTON_WIDTH = 260;
@@ -2477,7 +2623,7 @@ const BUTTON_GAP = 14;
 function getPauseButtonRect(index) {
     return {
         x: (canvas.width - BUTTON_WIDTH) / 2,
-        y: 196 + index * (BUTTON_HEIGHT + BUTTON_GAP),
+        y: 160 + index * (BUTTON_HEIGHT + BUTTON_GAP),
         w: BUTTON_WIDTH,
         h: BUTTON_HEIGHT,
     };
@@ -2798,6 +2944,8 @@ function update(dt) {
 
     bombFlash = Math.max(0, bombFlash - dt);
 
+    if (state === "playing" && touchMode && isPortrait()) pauseGame();
+
     // Oyun oynanmıyorsa (menü, seviye atlama, oyun bitti) geri kalanı dursun
     if (state !== "playing") return;
 
@@ -3073,6 +3221,8 @@ function draw() {
         drawGameOver();
     }
 
+    if (touchMode && isPortrait()) drawRotateHint();
+
 }
 
 // =====================================================
@@ -3177,7 +3327,13 @@ const STRINGS = {
         bossesDefeated: "Bosses defeated",
         newHighScore: "NEW HIGH SCORE!",
         bestScore: "Best: {0}",
-        gameOverPrompt: "R  play again   •   Esc  menu",
+        playAgain: "Play again (R)",
+        toMenu: "Menu (Esc)",
+        soundButton: "Sound: {0}   (M)",
+        startTouch: "Tap to start",
+        controlsTouch: "Left side: move  •  Aim and fire are automatic  •  Pause: top right",
+        chooseUpgradeTouch: "Choose an upgrade",
+        rotate: "Turn your phone sideways",
         bossDefeated: "BOSS DEFEATED! +{0}",
         shieldBroken: "SHIELD BROKEN",
         powerup_heal: "+25 HEALTH",
@@ -3241,7 +3397,13 @@ const STRINGS = {
         bossesDefeated: "Yenilen boss",
         newHighScore: "YENİ REKOR!",
         bestScore: "Rekor: {0}",
-        gameOverPrompt: "R  tekrar oyna   •   Esc  menü",
+        playAgain: "Tekrar oyna (R)",
+        toMenu: "Menü (Esc)",
+        soundButton: "Ses: {0}   (M)",
+        startTouch: "Başlamak için dokun",
+        controlsTouch: "Sol taraf: hareket  •  Nişan ve ateş otomatik  •  Duraklatma: sağ üst",
+        chooseUpgradeTouch: "Bir yükseltme seç",
+        rotate: "Telefonu yan çevir",
         bossDefeated: "BOSS YENİLDİ! +{0}",
         shieldBroken: "KALKAN KIRILDI",
         powerup_heal: "+25 CAN",
@@ -3724,7 +3886,7 @@ function drawHUD() {
     drawMinimap();
 
     // --- Dash göstergesi (seviye rozetinin üstünde) ---
-    if (player.dashLevel > 0) {
+    if (player.dashLevel > 0 && !touchMode) {
         const dy = canvas.height - 86;
         const ready = player.dashCooldown <= 0;
         drawPanel(16, dy, 112, 20);
@@ -3759,12 +3921,68 @@ function drawHUD() {
     }
 
     drawChestReveal();
+    if (touchMode) drawTouchControls();
 
     // --- Boss uyarısı (yanıp söner) ---
     if (bossWarning > 0 && Math.floor(bossWarning * 4) % 2 === 0) {
         drawCenteredText(T("warning"), canvas.height / 2 - 140, 44, UI.red, true);
         drawCenteredText(T("bossIncoming"), canvas.height / 2 - 104, 22, UI.gold, true);
     }
+}
+
+function drawCircleOutline(x, y, radius, fill, stroke, lineWidth) {
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    if (fill) {
+        ctx.fillStyle = fill;
+        ctx.fill();
+    }
+    if (stroke) {
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = lineWidth;
+        ctx.stroke();
+    }
+}
+
+function drawTouchControls() {
+    const baseX = joystick ? joystick.baseX : 130;
+    const baseY = joystick ? joystick.baseY : canvas.height - 150;
+    const knobX = joystick ? joystick.x : baseX;
+    const knobY = joystick ? joystick.y : baseY;
+
+    ctx.globalAlpha = joystick ? 0.7 : 0.3;
+    drawCircleOutline(baseX, baseY, JOYSTICK_RADIUS, "rgba(24, 16, 8, 0.45)", UI.woodLight, 3);
+    drawCircleOutline(knobX, knobY, 24, UI.wood, UI.line, 3);
+    ctx.globalAlpha = 1;
+
+    if (player.dashLevel > 0) {
+        const { x, y, r } = DASH_BUTTON;
+        const ready = player.dashCooldown <= 0;
+        const ratio = 1 - player.dashCooldown / DASH_COOLDOWNS[player.dashLevel];
+        drawCircleOutline(x, y, r, ready ? "rgba(31, 111, 122, 0.75)" : "rgba(24, 16, 8, 0.6)", UI.line, 4);
+        ctx.strokeStyle = ready ? UI.cyan : "#1f6f7a";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(x, y, r - 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ratio);
+        ctx.stroke();
+        drawText(T("dash"), x, y, 14, ready ? UI.text : UI.textDim, "center", true);
+    }
+
+    const p = getTouchPauseRect();
+    drawPanel(p.x, p.y, p.w, p.h);
+    ctx.fillStyle = UI.text;
+    ctx.fillRect(p.x + 13, p.y + 11, 5, 18);
+    ctx.fillRect(p.x + 22, p.y + 11, 5, 18);
+}
+
+function drawRotateHint() {
+    dimScreen(0.92);
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2 - 30;
+    drawPanel(cx - 90, cy - 40, 44, 80, UI.woodDark);
+    drawArrow(cx, cy, 1, UI.gold);
+    drawPanel(cx + 30, cy - 22, 80, 44, UI.woodDark);
+    drawCenteredText(T("rotate"), cy + 90, 28, UI.text, true);
 }
 
 function drawChestReveal() {
@@ -3919,8 +4137,10 @@ function drawMinimap() {
         ty += 18;
         drawText(T("danger", danger), x + w, ty, 12, getDangerColor(danger), "right", true);
     }
-    ty += 18;
-    drawText(T("autofire", autofire ? T("on") : T("off")), x + w, ty, 12, autofire ? UI.cyan : UI.textDim, "right");
+    if (!touchMode) {
+        ty += 18;
+        drawText(T("autofire", autofire ? T("on") : T("off")), x + w, ty, 12, autofire ? UI.cyan : UI.textDim, "right");
+    }
     if (muted) {
         drawText(T("soundOff"), x + w, ty + 16, 12, UI.textDim, "right");
     }
@@ -3951,7 +4171,7 @@ function drawLevelUp() {
 
     drawCenteredText(T("levelUp"), 86, 42, UI.gold, true);
     const keyList = upgradeChoices.map((_, i) => i + 1).join(", ");
-    drawCenteredText(T("chooseUpgrade", keyList), 122, 15, UI.textDim);
+    drawCenteredText(touchMode ? T("chooseUpgradeTouch") : T("chooseUpgrade", keyList), 122, 15, UI.textDim);
 
     drawRerollButton();
 
@@ -4037,9 +4257,9 @@ function drawPause() {
     dimScreen(0.65);
 
     const pw = 440;
-    const ph = 390;
+    const ph = 440;
     const px = (canvas.width - pw) / 2;
-    const py = 100;
+    const py = 60;
     drawPanel(px, py, pw, ph);
     drawCenteredText(T("paused"), py + 44, 34, UI.text, true);
     if (danger > 0) drawCenteredText(T("danger", danger), py + 76, 14, getDangerColor(danger), true);
@@ -4047,7 +4267,8 @@ function drawPause() {
     // Butonlar
     const hovered = getPauseButtonAt(mouse.x, mouse.y);
     PAUSE_BUTTONS.forEach((button, i) => {
-        drawButton(getPauseButtonRect(i), T(button.label), i === hovered);
+        const label = typeof button.label === "function" ? button.label() : T(button.label);
+        drawButton(getPauseButtonRect(i), label, i === hovered);
     });
 
     // Bilgiler: seviye, ses ve alınan yükseltmeler
@@ -4294,14 +4515,16 @@ function drawMenu() {
 
     // "Başlamak için tıkla" yazısı yavaşça yanıp söner
     ctx.globalAlpha = 0.6 + Math.sin(performance.now() / 300) * 0.4;
-    drawCenteredText(T("start"), cy + 34, 24, UI.text, true);
+    drawCenteredText(touchMode ? T("startTouch") : T("start"), cy + 34, 24, UI.text, true);
     ctx.globalAlpha = 1;
 
     // Kontroller paneli ve otomatik ateş durumu
     const cw = 680;
     drawPanel((canvas.width - cw) / 2, cy + 72, cw, 30);
-    drawCenteredText(T("controls"), cy + 87, 14, UI.textDim);
-    drawCenteredText(T("autofire", autofire ? T("on") : T("off")), cy + 122, 14, autofire ? UI.cyan : UI.textDim, true);
+    drawCenteredText(touchMode ? T("controlsTouch") : T("controls"), cy + 87, 14, UI.textDim);
+    if (!touchMode) {
+        drawCenteredText(T("autofire", autofire ? T("on") : T("off")), cy + 122, 14, autofire ? UI.cyan : UI.textDim, true);
+    }
 
     // Rekor: yazının genişliğine göre ortala, taç ikonu solunda
     const scoreText = T("highScore", highScore);
@@ -4318,14 +4541,31 @@ function drawMenu() {
     drawFlags();
 }
 
+function getGameOverLayout() {
+    const pw = 420;
+    const ph = 350 + (newDangerUnlocked ? 30 : 0);
+    return { pw, ph, px: (canvas.width - pw) / 2, py: (canvas.height - ph) / 2 };
+}
+
+function getGameOverButtonRect(index) {
+    const { px, py, pw, ph } = getGameOverLayout();
+    const w = 170;
+    const gap = 20;
+    const left = px + (pw - (w * 2 + gap)) / 2;
+    return { x: left + index * (w + gap), y: py + ph - 54, w, h: 38 };
+}
+
+function getGameOverButtonAt(x, y) {
+    for (let i = 0; i < 2; i++) {
+        if (isInRect(x, y, getGameOverButtonRect(i))) return i;
+    }
+    return -1;
+}
+
 function drawGameOver() {
     dimScreen(0.65);
 
-    const extra = newDangerUnlocked ? 30 : 0;
-    const pw = 420;
-    const ph = 330 + extra;
-    const px = (canvas.width - pw) / 2;
-    const py = (canvas.height - ph) / 2;
+    const { px, py, pw, ph } = getGameOverLayout();
     drawPanel(px, py, pw, ph);
 
     drawCenteredText(T("gameOver"), py + 42, 40, UI.red, true);
@@ -4359,7 +4599,9 @@ function drawGameOver() {
         drawCenteredText(T("dangerUnlocked", dangerUnlocked), py + 282, 20, UI.red, true);
     }
 
-    drawCenteredText(T("gameOverPrompt"), py + 296 + extra, 16, UI.text, true);
+    const hovered = getGameOverButtonAt(mouse.x, mouse.y);
+    drawButton(getGameOverButtonRect(0), T("playAgain"), hovered === 0);
+    drawButton(getGameOverButtonRect(1), T("toMenu"), hovered === 1);
 }
 
 

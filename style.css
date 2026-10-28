@@ -1,6 +1,9 @@
 body {
     margin: 0;
     height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    overscroll-behavior: none;
     background: #0d0f12;
     display: flex;
     justify-content: center;
@@ -8,8 +11,17 @@ body {
 }
 
 canvas {
+    width: min(960px, 100vw, calc(100vh * 16 / 9));
+    width: min(960px, 100vw, calc(100dvh * 16 / 9));
+    height: auto;
+    aspect-ratio: 16 / 9;
+    box-sizing: border-box;
     background: #1b1f24;
     border: 2px solid #2c333b;
     cursor: crosshair;
-    max-width: 100%;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
 }

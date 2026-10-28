@@ -39,11 +39,23 @@ Geliştirme sırasında işleri hızlandırmak, kavramları anlamak ve hataları
 | `Enter` / Tıklama | Oyunu başlatma |
 | `←` `→` / `A` `D` / Oklara tıklama | Ana menüde tehlike seviyesi seçme |
 | `W` (ana menüde) | Atölye'yi açma |
-| `R` | Oyun bitince tekrar oynama |
+| `R` / Tıklama | Oyun bitince tekrar oynama |
 | `Esc` / `P` | Duraklatma / devam etme |
 | `R` / `Q` (duraklatılmışken) | Yeniden başlatma / menüye çıkma |
 | `Esc` (oyun bitince) | Menüye dönme |
 | `M` | Sesi açma / kapatma |
+
+### Dokunmatik (telefon ve tablet)
+
+| Dokunma | İşlev |
+| --- | --- |
+| Sol tarafta sürükleme | Hareket eden sanal joystick ile hareket |
+| Otomatik | En yakın düşmana nişan alıp ateş eder |
+| Atılma düğmesi (sağ alt) | Atılma (Dash yükseltmesini alınca) |
+| Duraklatma düğmesi (sağ üst) | Duraklatma; ses, duraklatma menüsünden açılıp kapatılır |
+| Dokunma | Menüler, kartlar, Atölye ve butonlar |
+
+Telefonu yan tutarak oyna; oyunu başlatınca (tarayıcı izin veriyorsa) tam ekrana geçer.
 
 ## Özellikler
 
@@ -66,6 +78,7 @@ Geliştirme sırasında işleri hızlandırmak, kavramları anlamak ve hataları
 - **Altın ve Atölye**: oyun sırasında altın topla, oyunlar arasında kalıcı geliştirmelere harca
 - **Kalıcı en yüksek skor**, her tehlike seviyesi için ayrı, tarayıcıda `localStorage` ile saklanır
 - **Oyun ekranları**: başlangıç menüsü, duraklatma menüsü, seviye atlama ve oyun bitti ekranları
+- **Mobil destek**: dokunmatik joystick, otomatik nişan ve her cihaza sığacak şekilde ölçeklenen ekran
 - **Türkçe ve İngilizce**: ana menüdeki bayraklara tıklayarak dil değiştirme
 - **Otomatik ateş**: fareye basılı tutmadan imlecin yönüne ateş eder (`F` ile aç/kapat)
 

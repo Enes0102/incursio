@@ -48,7 +48,7 @@ I used AI tools during development to speed things up, explain concepts and help
 | Touch | Action |
 | --- | --- |
 | Drag on the left side | Move with a floating joystick |
-| Automatic | Aims at the nearest enemy and fires |
+| Drag on the right side | Aim with a second joystick, fires while held |
 | Dash button (bottom right) | Dash (after unlocking the Dash upgrade) |
 | Pause button (top right) | Pause; sound can be toggled from the pause menu |
 | Tap | Menus, cards, Workshop and buttons |
@@ -76,7 +76,7 @@ Play with your phone held sideways; the game goes fullscreen when you start it (
 - **Gold and Workshop**: collect gold during runs and spend it on permanent upgrades between runs
 - **Persistent high score** for each danger level, saved in the browser with `localStorage`
 - **Game states**: start menu, pause menu, level-up and game over screens
-- **Mobile support**: touch joystick, automatic aiming and a screen that scales to fit any device
+- **Mobile support**: twin-stick touch controls and a screen that scales to fit any device
 - **English and Turkish** — switch languages by clicking the flags on the main menu
 - **Autofire** — shoots toward your cursor without holding the mouse (toggle with `F`)
 

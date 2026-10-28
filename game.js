@@ -447,9 +447,10 @@ canvas.addEventListener("mousedown", (e) => {
 
 let touchMode = false;
 let joystick = null;
+let aimStick = null;
 const JOYSTICK_RADIUS = 56;
 const JOYSTICK_DEADZONE = 0.15;
-const TOUCH_AIM_RANGE = 560;
+const AIM_DEADZONE = 0.25;
 const DASH_BUTTON = { x: canvas.width - 84, y: canvas.height - 104, r: 38 };
 
 canvas.addEventListener("touchstart", (e) => {
@@ -474,17 +475,9 @@ canvas.addEventListener("touchstart", (e) => {
 canvas.addEventListener("touchmove", (e) => {
     e.preventDefault();
     for (const touch of e.changedTouches) {
-        if (!joystick || touch.identifier !== joystick.id) continue;
         const p = toCanvasPoint(touch.clientX, touch.clientY);
-        joystick.x = p.x;
-        joystick.y = p.y;
-        const dx = p.x - joystick.baseX;
-        const dy = p.y - joystick.baseY;
-        const distance = Math.hypot(dx, dy);
-        if (distance > JOYSTICK_RADIUS) {
-            joystick.baseX = p.x - (dx / distance) * JOYSTICK_RADIUS;
-            joystick.baseY = p.y - (dy / distance) * JOYSTICK_RADIUS;
-        }
+        if (joystick && touch.identifier === joystick.id) dragStick(joystick, p);
+        if (aimStick && touch.identifier === aimStick.id) dragStick(aimStick, p);
     }
 }, { passive: false });
 
@@ -492,6 +485,7 @@ function endTouch(e) {
     e.preventDefault();
     for (const touch of e.changedTouches) {
         if (joystick && touch.identifier === joystick.id) joystick = null;
+        if (aimStick && touch.identifier === aimStick.id) aimStick = null;
     }
     if (e.touches.length === 0) {
         mouse.x = -1000;
@@ -511,9 +505,37 @@ function handlePlayTouch(id, p) {
         player.tryDash();
         return;
     }
-    if (!joystick && p.x < canvas.width * 0.6) {
-        joystick = { id, baseX: p.x, baseY: p.y, x: p.x, y: p.y };
+    if (p.x < canvas.width / 2) {
+        if (!joystick) joystick = createStick(id, p);
+    } else if (!aimStick) {
+        aimStick = createStick(id, p);
     }
+}
+
+function createStick(id, p) {
+    return { id, baseX: p.x, baseY: p.y, x: p.x, y: p.y };
+}
+
+function dragStick(stick, p) {
+    stick.x = p.x;
+    stick.y = p.y;
+    const dx = p.x - stick.baseX;
+    const dy = p.y - stick.baseY;
+    const distance = Math.hypot(dx, dy);
+    if (distance > JOYSTICK_RADIUS) {
+        stick.baseX = p.x - (dx / distance) * JOYSTICK_RADIUS;
+        stick.baseY = p.y - (dy / distance) * JOYSTICK_RADIUS;
+    }
+}
+
+function getStickVector(stick, deadzone) {
+    if (!stick) return null;
+    const jx = (stick.x - stick.baseX) / JOYSTICK_RADIUS;
+    const jy = (stick.y - stick.baseY) / JOYSTICK_RADIUS;
+    const m = Math.hypot(jx, jy);
+    if (m <= deadzone) return null;
+    const strength = Math.min(1, m);
+    return { x: (jx / m) * strength, y: (jy / m) * strength };
 }
 
 function getTouchPauseRect() {
@@ -540,30 +562,7 @@ function getMoveInput() {
     const length = Math.hypot(x, y);
     if (length > 0) return { x: x / length, y: y / length };
 
-    if (joystick) {
-        const jx = (joystick.x - joystick.baseX) / JOYSTICK_RADIUS;
-        const jy = (joystick.y - joystick.baseY) / JOYSTICK_RADIUS;
-        const m = Math.hypot(jx, jy);
-        if (m > JOYSTICK_DEADZONE) {
-            const strength = Math.min(1, m);
-            return { x: (jx / m) * strength, y: (jy / m) * strength };
-        }
-    }
-    return { x: 0, y: 0 };
-}
-
-function findAimTarget(from) {
-    let best = null;
-    let bestDistance = TOUCH_AIM_RANGE;
-    for (const enemy of enemies) {
-        if (enemy.dead) continue;
-        const distance = Math.hypot(enemy.x - from.x, enemy.y - from.y);
-        if (distance < bestDistance) {
-            best = enemy;
-            bestDistance = distance;
-        }
-    }
-    return best;
+    return getStickVector(joystick, JOYSTICK_DEADZONE) || { x: 0, y: 0 };
 }
 
 function handlePress() {
@@ -744,11 +743,9 @@ class Player {
         clampToWorld(this); // çitin içinde kal
 
         // Fare ekranda, oyuncu dünyada: farenin dünyadaki yerini bulmak için kamerayı ekle
-        let hasTarget = true;
+        const aim = touchMode ? getStickVector(aimStick, AIM_DEADZONE) : null;
         if (touchMode) {
-            const target = findAimTarget(this);
-            hasTarget = target !== null;
-            if (target) this.angle = Math.atan2(target.y - this.y, target.x - this.x);
+            if (aim) this.angle = Math.atan2(aim.y, aim.x);
             else if (dx !== 0 || dy !== 0) this.angle = Math.atan2(dy, dx);
         } else {
             this.angle = Math.atan2(mouse.y + camera.y - this.y, mouse.x + camera.x - this.x);
@@ -781,7 +778,7 @@ class Player {
         const currentFireRate = this.powerTimers.rapid > 0 ? this.fireRate * 0.4 : this.fireRate;
 
         this.fireTimer -= dt;
-        const wantsFire = touchMode ? hasTarget : mouse.down || autofire;
+        const wantsFire = touchMode ? aim !== null : mouse.down || autofire;
         if (wantsFire && this.fireTimer <= 0) {
             this.shoot();
             this.fireTimer = currentFireRate;
@@ -2576,6 +2573,7 @@ function startGame() {
     golds = [];
     runGold = 0;
     joystick = null;
+    aimStick = null;
     applyWorkshop();
 
     state = "playing";
@@ -2601,6 +2599,7 @@ function pauseGame() {
     // Basılı kalmış tuşları bırak, yoksa devam edince oyuncu kendi kendine yürür
     for (const key in keys) keys[key] = false;
     joystick = null;
+    aimStick = null;
 }
 
 function resumeGame() {
@@ -3331,7 +3330,7 @@ const STRINGS = {
         toMenu: "Menu (Esc)",
         soundButton: "Sound: {0}   (M)",
         startTouch: "Tap to start",
-        controlsTouch: "Left side: move  •  Aim and fire are automatic  •  Pause: top right",
+        controlsTouch: "Left side: move  •  Right side: aim and fire  •  Pause: top right",
         chooseUpgradeTouch: "Choose an upgrade",
         rotate: "Turn your phone sideways",
         bossDefeated: "BOSS DEFEATED! +{0}",
@@ -3401,7 +3400,7 @@ const STRINGS = {
         toMenu: "Menü (Esc)",
         soundButton: "Ses: {0}   (M)",
         startTouch: "Başlamak için dokun",
-        controlsTouch: "Sol taraf: hareket  •  Nişan ve ateş otomatik  •  Duraklatma: sağ üst",
+        controlsTouch: "Sol taraf: hareket  •  Sağ taraf: nişan ve ateş  •  Duraklatma: sağ üst",
         chooseUpgradeTouch: "Bir yükseltme seç",
         rotate: "Telefonu yan çevir",
         bossDefeated: "BOSS YENİLDİ! +{0}",
@@ -3944,16 +3943,21 @@ function drawCircleOutline(x, y, radius, fill, stroke, lineWidth) {
     }
 }
 
-function drawTouchControls() {
-    const baseX = joystick ? joystick.baseX : 130;
-    const baseY = joystick ? joystick.baseY : canvas.height - 150;
-    const knobX = joystick ? joystick.x : baseX;
-    const knobY = joystick ? joystick.y : baseY;
+function drawStick(stick, homeX, homeY, knobColor) {
+    const baseX = stick ? stick.baseX : homeX;
+    const baseY = stick ? stick.baseY : homeY;
+    const knobX = stick ? stick.x : baseX;
+    const knobY = stick ? stick.y : baseY;
 
-    ctx.globalAlpha = joystick ? 0.7 : 0.3;
+    ctx.globalAlpha = stick ? 0.7 : 0.3;
     drawCircleOutline(baseX, baseY, JOYSTICK_RADIUS, "rgba(24, 16, 8, 0.45)", UI.woodLight, 3);
-    drawCircleOutline(knobX, knobY, 24, UI.wood, UI.line, 3);
+    drawCircleOutline(knobX, knobY, 24, knobColor, UI.line, 3);
     ctx.globalAlpha = 1;
+}
+
+function drawTouchControls() {
+    drawStick(joystick, 130, canvas.height - 150, UI.wood);
+    drawStick(aimStick, canvas.width - 230, canvas.height - 150, "#c62828");
 
     if (player.dashLevel > 0) {
         const { x, y, r } = DASH_BUTTON;

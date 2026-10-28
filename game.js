@@ -34,6 +34,14 @@ const sprites = {
     blade: loadSprite("blade"),
     enemy_spitter: loadSprite("enemy_spitter"),
     enemy_charger: loadSprite("enemy_charger"),
+    enemy_splitter: loadSprite("enemy_splitter"),
+    enemy_splitling: loadSprite("enemy_splitling"),
+    chest_closed: loadSprite("chest_closed"),
+    chest_open: loadSprite("chest_open"),
+    bullet_rail: loadSprite("bullet_rail"),
+    powerup_magnet: loadSprite("powerup_magnet"),
+    powerup_bomb: loadSprite("powerup_bomb"),
+    powerup_freeze: loadSprite("powerup_freeze"),
 };
 
 // Resim yüklendi mi? Yüklenmediyse eski daireler çizilir, oyun yine çalışır
@@ -489,7 +497,7 @@ class Player {
         this.time = 0;            // yanıp sönme animasyonu için
 
         // GÜÇLENDİRMELER: her birinin kalan süresi (saniye). 0 = aktif değil
-        this.powerTimers = { rapid: 0, triple: 0 };
+        this.powerTimers = { rapid: 0, triple: 0, freeze: 0 };
 
         // CAN YENİLENMESİ (Regeneration yükseltmesiyle açılır): saniyede kaç can dolar
         this.regenRate = 0;   // 0 = kapalı
@@ -506,6 +514,10 @@ class Player {
         this.lifesteal = 0;       // Lifesteal: öldürme başına can
         this.frostLevel = 0;      // Frost Aura
         this.luck = 1;            // Lucky: güçlendirme düşme çarpanı
+
+        this.railgun = false;
+        this.iceBlades = false;
+        this.detonation = false;
 
         // DASH (Space): atılma
         this.dashLevel = 0;
@@ -630,6 +642,7 @@ class Player {
             const damage = crit ? base * 2 : base;
             const bullet = new Bullet(bx, by, angle, this.bulletSpeed, damage, this.pierce);
             bullet.crit = crit;
+            bullet.rail = this.railgun;
             bullets.push(bullet);
         }
 
@@ -734,16 +747,8 @@ class Bullet {
 
     draw() {
         if (isReady(sprites.bullet)) {
-            if (this.crit) {
-                // Kritik mermi: etrafında turuncu ışıltı
-                ctx.globalCompositeOperation = "lighter";
-                ctx.fillStyle = "rgba(255, 160, 0, 0.55)";
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, 8, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.globalCompositeOperation = "source-over";
-            }
-            drawSprite(sprites.bullet, this.x, this.y, this.angle);
+            const sprite = this.rail && isReady(sprites.bullet_rail) ? sprites.bullet_rail : sprites.bullet;
+            drawSprite(sprite, this.x, this.y, this.angle);
         } else {
             drawCircle(this.x, this.y, this.radius, "#ffd54f");
         }
@@ -804,7 +809,20 @@ const ENEMY_TYPES = {
     // behavior: "ranged" = uzakta durup ateş eder, "charge" = hedef alıp hücum eder (yoksa düz kovalar)
     spitter: { radius: 14, speed: 90, health: 2, color: "#fbc02d", score: 25, dropChance: 0.12, xp: 3, hopSpeed: 6, hopHeight: 3, damage: 15, behavior: "ranged" },
     charger: { radius: 16, speed: 85, health: 5, color: "#b71c1c", score: 35, dropChance: 0.15, xp: 4, hopSpeed: 7, hopHeight: 3, damage: 35, behavior: "charge" },
+
+    splitter:  { radius: 14, speed: 80,  health: 2,   color: "#f06292", score: 20, dropChance: 0.08, xp: 2, hopSpeed: 6,  hopHeight: 4, damage: 15, splitInto: 2 },
+    splitling: { radius: 8,  speed: 135, health: 0.6, color: "#f8bbd0", score: 5,  dropChance: 0.02, xp: 1, hopSpeed: 14, hopHeight: 2, damage: 8 },
 };
+
+const SPLITTER_START = 90;
+const SPLITTER_WEIGHT_START = 5;
+const SPLITTER_WEIGHT_MAX = 10;
+
+const ICE_BLADE_SLOW = 0.6;
+const ICE_BLADE_TIME = 1.5;
+const DETONATION_RADIUS = 48;
+const DETONATION_POWER = 0.5;
+const EVOLUTION_COLOR = "#d1a3ff";
 
 // Yeni düşmanların ayarları
 const SPITTER_START = 300;        // 5:00'ten sonra gelmeye başlar
@@ -848,6 +866,12 @@ function makeElite(enemy) {
     enemy.dropChance *= 2;
     enemy.radius *= 1.3;
     enemy.scale = 1.3;
+    if (enemy.splitInto) enemy.splitInto += 1;
+}
+
+function getChill(enemy, dt) {
+    enemy.chillTimer = Math.max(0, (enemy.chillTimer || 0) - dt);
+    return enemy.chillTimer > 0 ? ICE_BLADE_SLOW : 0;
 }
 
 const BOSS_CONTACT_DAMAGE = 30;  // boss'a çarpınca
@@ -873,6 +897,8 @@ class Enemy {
         this.damage = type.damage;
         this.sprite = sprites["enemy_" + typeName]; // örn. sprites.enemy_tank
         this.behavior = type.behavior || "chase";
+        this.splitInto = type.splitInto || 0;
+        this.chillTimer = 0;
         this.elite = false;
         this.scale = 1;
         this.isBoss = false;
@@ -897,12 +923,20 @@ class Enemy {
     }
 
     update(dt) {
+        if (player.powerTimers.freeze > 0) {
+            this.frozen = true;
+            this.hitTimer -= dt;
+            this.bladeHitTimer = Math.max(0, (this.bladeHitTimer || 0) - dt);
+            clampToWorld(this);
+            return;
+        }
+
         const dx = player.x - this.x;
         const dy = player.y - this.y;
         const distance = Math.hypot(dx, dy);
 
         // Frost Aura içindeyse yavaşlar
-        const slow = getFrostSlow(this, distance);
+        const slow = Math.max(getFrostSlow(this, distance), getChill(this, dt));
         this.frozen = slow > 0;
         const speed = this.speed * (1 - slow);
 
@@ -983,9 +1017,10 @@ class Enemy {
     }
 
     // Hasar al. Öldüyse true döndürür.
-    takeHit(damage) {
+    takeHit(damage, crit = false) {
         this.health -= damage;
         this.hitTimer = 0.08;
+        spawnDamageNumber(this, damage, crit);
         return this.health <= 0;
     }
 
@@ -1112,7 +1147,8 @@ class Boss {
         const distance = Math.hypot(dx, dy);
 
         // Frost Aura boss'u yarı etkiyle yavaşlatır
-        const slow = getFrostSlow(this, distance) * 0.5;
+        const freeze = player.powerTimers.freeze > 0 ? 1 : 0;
+        const slow = Math.max(getFrostSlow(this, distance), getChill(this, dt), freeze) * 0.5;
         this.frozen = slow > 0;
 
         if (distance > 0) {
@@ -1191,9 +1227,10 @@ class Boss {
         if (pattern !== "summon") playSound("bossShoot");
     }
 
-    takeHit(damage) {
+    takeHit(damage, crit = false) {
         this.health -= damage;
         this.hitTimer = 0.06;
+        spawnDamageNumber(this, damage, crit);
         return this.health <= 0;
     }
 
@@ -1251,7 +1288,11 @@ class XpGem {
         const dy = player.y - this.y;
         const distance = Math.hypot(dx, dy);
 
-        if (distance < player.magnetRange) {
+        if (this.magnetized && distance > 0) {
+            const pull = Math.max(MAGNET_PULL, 500 * (1 - distance / player.magnetRange) + 150);
+            this.vx = (dx / distance) * pull;
+            this.vy = (dy / distance) * pull;
+        } else if (distance < player.magnetRange) {
             // MIKNATIS: oyuncuya yakınsa ona doğru uç, yaklaştıkça hızlan
             const pull = 500 * (1 - distance / player.magnetRange) + 150;
             this.vx = (dx / distance) * pull;
@@ -1353,7 +1394,20 @@ const UPGRADES = [
     { id: "lifesteal",   name: "Lifesteal",       desc: "Heal +0.5 health for every kill",            max: 3, apply: (p) => { p.lifesteal += 0.5; } },
     { id: "frost",       name: "Frost Aura",      desc: "Slow down enemies near you",                 max: 3, apply: (p) => { p.frostLevel += 1; } },
     { id: "lucky",       name: "Lucky",           desc: "Power-ups drop more often",                  max: 3, apply: (p) => { p.luck += 0.4; } },
+
+    { id: "railgun",     name: "Railgun",         desc: "Bullets pierce every enemy, +25% damage",    max: 1, evolution: true, requires: ["multishot", "pierce"],  apply: (p) => { p.railgun = true; p.pierce += 99; p.damage *= 1.25; } },
+    { id: "frostblades", name: "Frost Blades",    desc: "+1 blade, blades freeze what they cut",      max: 1, evolution: true, requires: ["blades", "frost"],      apply: (p) => { p.iceBlades = true; p.bladeCount += 1; } },
+    { id: "detonation",  name: "Detonation",      desc: "+10% crit chance, critical hits explode",    max: 1, evolution: true, requires: ["explosive", "crit"],    apply: (p) => { p.detonation = true; p.critChance += 0.1; } },
 ];
+
+function getUpgrade(id) {
+    return UPGRADES.find((u) => u.id === id);
+}
+
+function isUnlocked(upgrade) {
+    if (!upgrade.requires) return true;
+    return upgrade.requires.every((id) => (upgradeLevels[id] || 0) >= getUpgrade(id).max);
+}
 
 // Bir sonraki seviye için gereken XP: her seviyede biraz daha fazla
 // İlk seviyeler hızlı gelir, ilerledikçe gereken XP daha hızlı büyür
@@ -1373,11 +1427,11 @@ function addXp(amount) {
 }
 
 // Saldırı gücünü artıran yükseltmeler (her seviyede en az biri teklif edilir)
-const OFFENSE_UPGRADES = ["damage", "firerate", "multishot", "pierce", "crit", "blades", "explosive"];
+const OFFENSE_UPGRADES = ["damage", "firerate", "multishot", "pierce", "crit", "blades", "explosive", "railgun", "frostblades", "detonation"];
 
 // Rastgele 3 yükseltme seç (sonuna kadar alınmış olanlar hariç)
 function rollUpgradeChoices() {
-    const available = UPGRADES.filter((u) => (upgradeLevels[u.id] || 0) < u.max);
+    const available = UPGRADES.filter((u) => (upgradeLevels[u.id] || 0) < u.max && isUnlocked(u));
 
     // Listeyi karıştır (Fisher-Yates)
     for (let i = available.length - 1; i > 0; i--) {
@@ -1386,6 +1440,11 @@ function rollUpgradeChoices() {
     }
 
     const choices = available.slice(0, 3);
+
+    const evolution = available.find((u) => u.evolution);
+    if (evolution && !choices.includes(evolution)) {
+        choices[Math.floor(Math.random() * choices.length)] = evolution;
+    }
 
     // En az bir kart mutlaka saldırı yükseltmesi olsun, yoksa hasar geride kalır
     const hasOffense = choices.some((u) => OFFENSE_UPGRADES.includes(u.id));
@@ -1544,20 +1603,73 @@ class FloatingText {
 }
 
 
+const DAMAGE_NUMBER_LIMIT = 80;
+
+class DamageNumber {
+    constructor(x, y, value, crit) {
+        this.x = x + (Math.random() - 0.5) * 16;
+        this.y = y;
+        this.text = String(Math.max(1, Math.round(value))) + (crit ? "!" : "");
+        this.crit = crit;
+        this.life = crit ? 0.8 : 0.6;
+        this.maxLife = this.life;
+        this.vy = crit ? -90 : -70;
+        this.dead = false;
+    }
+
+    update(dt) {
+        this.y += this.vy * dt;
+        this.vy += 140 * dt;
+        this.life -= dt;
+        if (this.life <= 0) this.dead = true;
+    }
+
+    draw() {
+        const t = 1 - this.life / this.maxLife;
+        const pop = t < 0.15 ? 1 + (0.15 - t) * 4 : 1;
+        const size = Math.round((this.crit ? 18 : 12) * pop);
+
+        ctx.globalAlpha = Math.min(1, (this.life / this.maxLife) * 2.5);
+        ctx.font = font(size, true);
+        ctx.textAlign = "center";
+        ctx.lineJoin = "round";
+        ctx.lineWidth = this.crit ? 4 : 3;
+        ctx.strokeStyle = UI.shadow;
+        ctx.strokeText(this.text, Math.round(this.x), Math.round(this.y));
+        ctx.fillStyle = this.crit ? "#ff7043" : "#ffffff";
+        ctx.fillText(this.text, Math.round(this.x), Math.round(this.y));
+        ctx.textAlign = "left";
+        ctx.globalAlpha = 1;
+    }
+}
+
+function spawnDamageNumber(enemy, value, crit) {
+    if (damageNumbers.length >= DAMAGE_NUMBER_LIMIT) damageNumbers.shift();
+    damageNumbers.push(new DamageNumber(enemy.x, enemy.y - enemy.radius - 4, value, crit));
+}
+
+
 // =====================================================
 //  GÜÇLENDİRMELER
 // =====================================================
 // Yeni bir güçlendirme eklemek için: buraya bir satır ekle,
 // sonra applyPowerUp içinde ne yapacağını yaz
 const POWERUP_TYPES = {
-    heal:   { color: "#66bb6a", label: "+", name: "+25 HEALTH" },
-    rapid:  { color: "#ffd54f", label: "R", name: "RAPID FIRE" },
-    triple: { color: "#4fc3f7", label: "3", name: "TRIPLE SHOT" },
-    shield: { color: "#ce93d8", label: "S", name: "SHIELD" },
+    heal:   { color: "#66bb6a", label: "+", name: "+25 HEALTH",  weight: 3 },
+    rapid:  { color: "#ffd54f", label: "R", name: "RAPID FIRE",  weight: 2 },
+    triple: { color: "#4fc3f7", label: "3", name: "TRIPLE SHOT", weight: 2 },
+    shield: { color: "#ce93d8", label: "S", name: "SHIELD",      weight: 2 },
+    magnet: { color: "#ef5350", label: "M", name: "MAGNET",      weight: 1.5 },
+    freeze: { color: "#b3e5fc", label: "F", name: "FREEZE",      weight: 1.2 },
+    bomb:   { color: "#ff8a65", label: "B", name: "BOMB",        weight: 0.8 },
 };
 
 // Süreli güçlendirmeler kaç saniye sürsün (kalkan süreli değil, tek vuruşluk)
-const POWERUP_DURATION = { rapid: 6, triple: 8 };
+const POWERUP_DURATION = { rapid: 6, triple: 8, freeze: 4 };
+
+const BOMB_BOSS_DAMAGE = 0.08;
+const BOMB_FLASH_TIME = 0.35;
+const MAGNET_PULL = 750;
 
 class PowerUp {
     constructor(x, y, type) {
@@ -1603,10 +1715,43 @@ class PowerUp {
 // Ölen düşman şansına göre güçlendirme düşürsün
 function maybeDropPowerUp(enemy) {
     if (Math.random() < enemy.dropChance * player.luck) {
-        const types = Object.keys(POWERUP_TYPES); // ["heal", "rapid", "triple", "shield"]
-        const type = types[Math.floor(Math.random() * types.length)];
-        powerUps.push(new PowerUp(enemy.x, enemy.y, type));
+        powerUps.push(new PowerUp(enemy.x, enemy.y, choosePowerUpType()));
     }
+}
+
+function choosePowerUpType() {
+    let total = 0;
+    for (const type in POWERUP_TYPES) total += POWERUP_TYPES[type].weight;
+
+    let roll = Math.random() * total;
+    for (const type in POWERUP_TYPES) {
+        roll -= POWERUP_TYPES[type].weight;
+        if (roll < 0) return type;
+    }
+    return "heal";
+}
+
+function detonateBomb() {
+    const onScreen = enemies.filter((e) => !e.dead && isNearView(e.x, e.y, 20));
+    for (const enemy of onScreen) {
+        if (enemy.dead) continue;
+        if (enemy.isBoss) {
+            if (enemy.takeHit(enemy.maxHealth * BOMB_BOSS_DAMAGE)) killEnemy(enemy);
+        } else {
+            killEnemy(enemy);
+        }
+    }
+    for (const bullet of enemyBullets) {
+        if (isNearView(bullet.x, bullet.y, 20)) bullet.dead = true;
+    }
+    bombFlash = BOMB_FLASH_TIME;
+    bombOrigin = { x: player.x, y: player.y };
+    shakeScreen(16, 0.45);
+    playSound("bomb");
+}
+
+function magnetizeGems() {
+    for (const gem of xpGems) gem.magnetized = true;
 }
 
 function applyPowerUp(type) {
@@ -1616,6 +1761,10 @@ function applyPowerUp(type) {
         player.health = Math.min(player.maxHealth, player.health + 25);
     } else if (type === "shield") {
         player.hasShield = true; // zaten varsa üst üste binmez
+    } else if (type === "magnet") {
+        magnetizeGems();
+    } else if (type === "bomb") {
+        detonateBomb();
     } else {
         player.powerTimers[type] = POWERUP_DURATION[type];
     }
@@ -1623,6 +1772,94 @@ function applyPowerUp(type) {
     texts.push(new FloatingText(player.x, player.y - 30, powerupName(type), info.color));
     spawnParticles(player.x, player.y, info.color, 15);
     playSound("powerup");
+}
+
+
+const CHEST_OPEN_TIME = 1.2;
+const CHEST_HEAL_SCORE = 500;
+const CHEST_REVEAL_TIME = 3.5;
+
+class Chest {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.radius = 16;
+        this.time = 0;
+        this.opened = false;
+        this.openTimer = 0;
+        this.dead = false;
+    }
+
+    update(dt) {
+        this.time += dt;
+        if (this.opened) {
+            this.openTimer -= dt;
+            if (this.openTimer <= 0) this.dead = true;
+        } else if (Math.random() < dt * 5) {
+            spawnParticles(this.x + (Math.random() - 0.5) * 24, this.y - 8, "#ffd54f", 1);
+        }
+    }
+
+    draw() {
+        ctx.globalAlpha = this.opened ? Math.min(1, this.openTimer / 0.4) : 1;
+        drawShadow(this.x, this.y + 13, 16, 5);
+
+        if (!this.opened) {
+            ctx.globalCompositeOperation = "lighter";
+            ctx.fillStyle = `rgba(255, 200, 60, ${0.16 + Math.sin(this.time * 4) * 0.08})`;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, 26, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalCompositeOperation = "source-over";
+        }
+
+        const sprite = this.opened ? sprites.chest_open : sprites.chest_closed;
+        if (isReady(sprite)) {
+            drawSprite(sprite, Math.round(this.x), Math.round(this.y));
+        } else {
+            ctx.fillStyle = "#a0703c";
+            ctx.fillRect(this.x - 14, this.y - 10, 28, 20);
+        }
+        ctx.globalAlpha = 1;
+    }
+}
+
+function openChest(chest) {
+    chest.opened = true;
+    chest.openTimer = CHEST_OPEN_TIME;
+
+    const choices = rollUpgradeChoices();
+    const upgrade = choices.find((u) => u.evolution) || choices[0];
+
+    if (upgrade) {
+        upgrade.apply(player);
+        upgradeLevels[upgrade.id] = (upgradeLevels[upgrade.id] || 0) + 1;
+    } else {
+        player.health = player.maxHealth;
+        score += CHEST_HEAL_SCORE;
+    }
+    chestReveal = { upgrade, level: upgrade ? upgradeLevels[upgrade.id] : 0, timer: CHEST_REVEAL_TIME };
+
+    spawnParticles(chest.x, chest.y, "#ffd54f", 30);
+    spawnParticles(chest.x, chest.y, "#fff3a0", 15);
+    shakeScreen(4, 0.15);
+    playSound("chest");
+}
+
+function splitEnemy(enemy) {
+    const speedScale = Math.min(BALANCE.speedMaxMultiplier, 1 + gameTime * BALANCE.speedRampPerSecond);
+    const offset = Math.random() * Math.PI * 2;
+
+    for (let i = 0; i < enemy.splitInto; i++) {
+        const angle = offset + (Math.PI * 2 * i) / enemy.splitInto;
+        const piece = new Enemy(enemy.x + Math.cos(angle) * 14, enemy.y + Math.sin(angle) * 14, "splitling");
+        piece.speed *= speedScale;
+        clampToWorld(piece);
+        enemies.push(piece);
+    }
+
+    spawnParticles(enemy.x, enemy.y, "#f8bbd0", 8);
+    playSound("split");
 }
 
 
@@ -1758,10 +1995,22 @@ const SOUNDS = {
         playTone("sine", 200, 700, 0.4, 0.1);
         playTone("sine", 300, 900, 0.4, 0.06, 0.1);
     },
+    split: () => playTone("sine", 420, 820, 0.09, 0.06),
+    chest: () => {
+        playTone("square", 784, 784, 0.08, 0.07, 0);
+        playTone("square", 988, 988, 0.08, 0.07, 0.07);
+        playTone("square", 1175, 1175, 0.08, 0.07, 0.14);
+        playTone("square", 1568, 1568, 0.3, 0.07, 0.21);
+        playTone("triangle", 2400, 3200, 0.3, 0.04, 0.21);
+    },
+    bomb: () => {
+        playNoise(0.9, 0.5);
+        playTone("sawtooth", 160, 35, 0.8, 0.18);
+    },
 };
 
 // Aynı anda çok sık çalan sesler (vuruş, patlama, XP) birbirini bastırmasın diye kısa bir sınır
-const SOUND_LIMIT = { hit: 0.04, explode: 0.05, smallBoom: 0.06, xp: 0.03, bladeHit: 0.06, spit: 0.08, charge: 0.1 };
+const SOUND_LIMIT = { hit: 0.04, explode: 0.05, smallBoom: 0.06, xp: 0.03, bladeHit: 0.06, spit: 0.08, charge: 0.1, split: 0.06 };
 const lastSoundTime = {};
 
 function playSound(name) {
@@ -1803,6 +2052,11 @@ let particles = [];
 let powerUps = [];
 let xpGems = [];
 let texts = [];
+let chests = [];
+let damageNumbers = [];
+let chestReveal = null;
+let bombFlash = 0;
+let bombOrigin = { x: 0, y: 0 };
 
 let score = 0;
 let gameTime = 0;
@@ -1860,6 +2114,10 @@ function startGame() {
     powerUps = [];
     xpGems = [];
     texts = [];
+    chests = [];
+    damageNumbers = [];
+    chestReveal = null;
+    bombFlash = 0;
     score = 0;
     gameTime = 0;
     spawnTimer = 0;
@@ -1980,8 +2238,10 @@ function chooseEnemyType() {
     const t = gameTime;
 
     // Her tipin "ağırlığı": büyük olan daha sık çıkar, 0 olan hiç çıkmaz
+    const splitter = t > SPLITTER_START ? Math.min(SPLITTER_WEIGHT_MAX, SPLITTER_WEIGHT_START + (t - SPLITTER_START) / 40) : 0;
     const weights = {
-        normal: 55,
+        normal: 55 - splitter,
+        splitter,
         fast: t > 15 ? 30 : 0,
         tank: t > 30 ? 15 : 0,
         spitter: t > SPITTER_START ? Math.min(18, 8 + (t - SPITTER_START) / 30) : 0,
@@ -2140,6 +2400,9 @@ function killEnemy(enemy) {
         spawnParticles(enemy.x, enemy.y, "#ffd54f", 30);
         shakeScreen(20, 0.8);
         maybeDropPowerUp(enemy);
+        const chest = new Chest(enemy.x, enemy.y);
+        clampToWorld(chest);
+        chests.push(chest);
         texts.push(new FloatingText(enemy.x, enemy.y - 50, T("bossDefeated", enemy.score), "#ffd54f"));
         playSound("bossDeath");
         boss = null;
@@ -2149,6 +2412,7 @@ function killEnemy(enemy) {
         // Büyük düşman = büyük patlama
         spawnParticles(enemy.x, enemy.y, enemy.color, 10 + enemy.radius);
         playSound("explode");
+        if (enemy.splitInto > 0) splitEnemy(enemy);
     }
 }
 
@@ -2223,8 +2487,18 @@ function update(dt) {
     }
     texts = texts.filter((text) => !text.dead);
 
+    for (const number of damageNumbers) number.update(dt);
+    damageNumbers = damageNumbers.filter((number) => !number.dead);
+
+    bombFlash = Math.max(0, bombFlash - dt);
+
     // Oyun oynanmıyorsa (menü, seviye atlama, oyun bitti) geri kalanı dursun
     if (state !== "playing") return;
+
+    if (chestReveal) {
+        chestReveal.timer -= dt;
+        if (chestReveal.timer <= 0) chestReveal = null;
+    }
 
     player.update(dt);
     updateCamera();
@@ -2273,13 +2547,22 @@ function update(dt) {
             spawnParticles(bullet.x, bullet.y, "#ffd54f", 4); // küçük kıvılcım
 
             if (bullet.crit) {
-                // Kritik vuruş: sarı yazı ve turuncu kıvılcımlar
-                texts.push(new FloatingText(enemy.x, enemy.y - enemy.radius - 6, T("crit"), "#ffb300"));
-                spawnParticles(bullet.x, bullet.y, "#ffb300", 6);
+                spawnParticles(bullet.x, bullet.y, "#ff5722", 6);
                 playSound("crit");
+
+                if (player.detonation) {
+                    explosions.push({
+                        x: bullet.x,
+                        y: bullet.y,
+                        radius: DETONATION_RADIUS,
+                        damage: Math.max(1, Math.round(bullet.damage * DETONATION_POWER * 10) / 10),
+                        life: 0.3,
+                        done: false,
+                    });
+                }
             }
 
-            if (enemy.takeHit(bullet.damage)) {
+            if (enemy.takeHit(bullet.damage, bullet.crit)) {
                 killEnemy(enemy);
             } else {
                 playSound("hit"); // vurduk ama ölmedi
@@ -2301,6 +2584,7 @@ function update(dt) {
             if (Math.hypot(enemy.x - pos.x, enemy.y - pos.y) > enemy.radius + 12) continue;
 
             enemy.bladeHitTimer = BLADE_HIT_COOLDOWN;
+            if (player.iceBlades) enemy.chillTimer = ICE_BLADE_TIME;
             spawnParticles(pos.x, pos.y, "#e0f7ff", 4);
             if (enemy.takeHit(getPlayerDamage() + 1)) {
                 killEnemy(enemy);
@@ -2362,6 +2646,12 @@ function update(dt) {
         }
     }
 
+    for (const chest of chests) {
+        chest.update(dt);
+        if (!chest.opened && isColliding(player, chest)) openChest(chest);
+    }
+    chests = chests.filter((chest) => !chest.dead);
+
     // --- XP kristallerini topla ---
     for (const gem of xpGems) {
         if (!gem.dead && isColliding(player, gem)) {
@@ -2411,6 +2701,7 @@ function draw() {
     drawFrostAura();
 
     for (const particle of particles) particle.draw();
+    for (const chest of chests) chest.draw();
     for (const gem of xpGems) gem.draw();
     for (const powerUp of powerUps) powerUp.draw();
     for (const bullet of bullets) bullet.draw();
@@ -2422,9 +2713,22 @@ function draw() {
     if (state !== "gameover") player.draw();
     if (state !== "gameover") drawBlades();
     drawExplosions();
+    drawBombWave();
+    for (const number of damageNumbers) number.draw();
     for (const text of texts) text.draw();
 
     ctx.restore();
+
+    if (player.powerTimers.freeze > 0 && state !== "gameover") {
+        const fade = Math.min(1, player.powerTimers.freeze / 0.5);
+        ctx.fillStyle = `rgba(150, 215, 255, ${0.14 * fade})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    if (bombFlash > 0) {
+        ctx.fillStyle = `rgba(255, 244, 224, ${(bombFlash / BOMB_FLASH_TIME) * 0.6})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
 
     // --- Hasar flaşı ---
     if (damageFlash > 0) {
@@ -2476,11 +2780,23 @@ function drawFrostAura() {
 function drawBlades() {
     for (const pos of getBladePositions()) {
         if (isReady(sprites.blade)) {
-            drawSprite(sprites.blade, pos.x, pos.y, player.time * 14);
+            drawSprite(player.iceBlades ? getFrozenSprite(sprites.blade) : sprites.blade, pos.x, pos.y, player.time * 14);
         } else {
             drawCircle(pos.x, pos.y, 8, "#cfd8dc");
         }
     }
+}
+
+function drawBombWave() {
+    if (bombFlash <= 0) return;
+    const t = 1 - bombFlash / BOMB_FLASH_TIME;
+    ctx.globalAlpha = 1 - t;
+    ctx.strokeStyle = "#ffd54f";
+    ctx.lineWidth = 10 * (1 - t) + 2;
+    ctx.beginPath();
+    ctx.arc(bombOrigin.x, bombOrigin.y, 40 + t * canvas.width * 0.6, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
 }
 
 // Explosive Rounds: büyüyüp sönen turuncu halka
@@ -2542,11 +2858,16 @@ const STRINGS = {
         gameOverPrompt: "R  play again   •   Esc  menu",
         bossDefeated: "BOSS DEFEATED! +{0}",
         shieldBroken: "SHIELD BROKEN",
-        crit: "CRIT!",
         powerup_heal: "+25 HEALTH",
         powerup_rapid: "RAPID FIRE",
         powerup_triple: "TRIPLE SHOT",
         powerup_shield: "SHIELD",
+        evolution: "EVOLUTION",
+        chestFull: "FULL HEALTH +{0}",
+        chestTitle: "CHEST REWARD",
+        powerup_magnet: "MAGNET",
+        powerup_freeze: "FREEZE",
+        powerup_bomb: "BOMB",
     },
     tr: {
         best: "REKOR {0}",
@@ -2584,11 +2905,16 @@ const STRINGS = {
         gameOverPrompt: "R  tekrar oyna   •   Esc  menü",
         bossDefeated: "BOSS YENİLDİ! +{0}",
         shieldBroken: "KALKAN KIRILDI",
-        crit: "KRİTİK!",
         powerup_heal: "+25 CAN",
         powerup_rapid: "HIZLI ATEŞ",
         powerup_triple: "ÜÇLÜ ATIŞ",
         powerup_shield: "KALKAN",
+        evolution: "EVRİM",
+        chestFull: "TAM CAN +{0}",
+        chestTitle: "SANDIKTAN ÇIKTI",
+        powerup_magnet: "MIKNATIS",
+        powerup_freeze: "DONDURMA",
+        powerup_bomb: "BOMBA",
     },
 };
 
@@ -2612,6 +2938,9 @@ const UPGRADE_TEXT = {
         lifesteal: ["Lifesteal", "Heal +0.5 health for every kill"],
         frost: ["Frost Aura", "Slow down enemies near you"],
         lucky: ["Lucky", "Power-ups drop more often"],
+        railgun: ["Railgun", "Bullets pierce every enemy, +25% damage"],
+        frostblades: ["Frost Blades", "+1 blade, blades freeze what they cut"],
+        detonation: ["Detonation", "+10% crit chance, critical hits explode"],
     },
     tr: {
         damage: ["Güçlü Atış", "+1 mermi hasarı"],
@@ -2631,6 +2960,9 @@ const UPGRADE_TEXT = {
         lifesteal: ["Can Çalma", "Her öldürmede +0.5 can"],
         frost: ["Buz Aurası", "Yakınındaki düşmanları yavaşlat"],
         lucky: ["Şans", "Güçlendirmeler daha sık düşer"],
+        railgun: ["Ray Tüfeği", "Mermiler bütün düşmanları deler, +%25 hasar"],
+        frostblades: ["Buz Bıçakları", "+1 bıçak, bıçaklar kestiğini dondurur"],
+        detonation: ["İnfilak", "+%10 kritik şansı, kritik vuruşlar patlar"],
     },
 };
 
@@ -3028,11 +3360,53 @@ function drawHUD() {
         drawBar(bx + 8, 36, bw - 16, 8, boss.health / boss.maxHealth, "#c62828", "#ef5350", "#7f0000");
     }
 
+    drawChestReveal();
+
     // --- Boss uyarısı (yanıp söner) ---
     if (bossWarning > 0 && Math.floor(bossWarning * 4) % 2 === 0) {
         drawCenteredText(T("warning"), canvas.height / 2 - 140, 44, UI.red, true);
         drawCenteredText(T("bossIncoming"), canvas.height / 2 - 104, 22, UI.gold, true);
     }
+}
+
+function drawChestReveal() {
+    if (!chestReveal) return;
+
+    const shown = CHEST_REVEAL_TIME - chestReveal.timer;
+    const upgrade = chestReveal.upgrade;
+    const color = upgrade && upgrade.evolution ? EVOLUTION_COLOR : UI.gold;
+    const w = 400;
+    const h = 84;
+    const x = Math.round((canvas.width - w) / 2);
+    const y = Math.round(78 - Math.max(0, 1 - shown / 0.25) * 24);
+
+    const alpha = Math.max(0, Math.min(1, shown / 0.25, chestReveal.timer / 0.5));
+    const glow = shown < 1.2 ? 0.75 + Math.sin(shown * 8) * 0.25 : 1;
+
+    ctx.globalAlpha = alpha * glow;
+    ctx.fillStyle = color;
+    ctx.fillRect(x - 8, y - 8, w + 16, h + 16);
+    ctx.globalAlpha = alpha;
+
+    drawPanel(x, y, w, h, upgrade && upgrade.evolution ? "rgba(44, 24, 56, 0.97)" : "rgba(30, 20, 10, 0.97)");
+
+    if (isReady(sprites.chest_open)) {
+        ctx.drawImage(sprites.chest_open, x + 14, y + (h - 42) / 2, 48, 42);
+    }
+
+    const tx = x + 78;
+    drawText(T("chestTitle"), tx, y + 16, 12, color, "left", true);
+
+    if (upgrade) {
+        const tag = upgrade.evolution ? T("evolution") : T("lv") + " " + chestReveal.level + "/" + upgrade.max;
+        drawText(tag, x + w - 12, y + 16, 12, color, "right", true);
+        drawText(upgradeName(upgrade), tx, y + 40, 22, UI.text, "left", true);
+        drawText(upgradeDesc(upgrade), tx, y + 64, 13, UI.textDim);
+    } else {
+        drawText(T("chestFull", CHEST_HEAL_SCORE), tx, y + 46, 22, UI.text, "left", true);
+    }
+
+    ctx.globalAlpha = 1;
 }
 
 // Güçlendirme göstergesi: ikon, isim ve kalan süre çubuğu
@@ -3110,6 +3484,14 @@ function drawMinimap() {
         ctx.fillRect(x + powerUp.x * scale - 1.5, y + powerUp.y * scale - 1.5, 3, 3);
     }
 
+    for (const chest of chests) {
+        if (chest.opened) continue;
+        ctx.fillStyle = UI.line;
+        ctx.fillRect(x + chest.x * scale - 3, y + chest.y * scale - 3, 6, 6);
+        ctx.fillStyle = UI.gold;
+        ctx.fillRect(x + chest.x * scale - 2, y + chest.y * scale - 2, 4, 4);
+    }
+
     // Düşmanlar
     for (const enemy of enemies) {
         if (enemy.isBoss) continue;
@@ -3171,19 +3553,28 @@ function drawLevelUp() {
         const cx = r.x + r.w / 2;
         const currentLevel = upgradeLevels[upgrade.id] || 0;
         const isHovered = i === hovered;
+        const evolution = upgrade.evolution;
 
         if (isHovered) {
             ctx.fillStyle = UI.gold;
             ctx.fillRect(r.x - 9, r.y - 9, r.w + 18, r.h + 18);
+        } else if (evolution) {
+            ctx.globalAlpha = 0.6 + Math.sin(performance.now() / 200) * 0.3;
+            ctx.fillStyle = EVOLUTION_COLOR;
+            ctx.fillRect(r.x - 9, r.y - 9, r.w + 18, r.h + 18);
+            ctx.globalAlpha = 1;
         }
-        drawPanel(r.x, r.y, r.w, r.h, isHovered ? "rgba(70, 44, 20, 0.96)" : "rgba(30, 20, 10, 0.94)");
+        const cardFill = isHovered ? "rgba(70, 44, 20, 0.96)" : evolution ? "rgba(44, 24, 56, 0.96)" : "rgba(30, 20, 10, 0.94)";
+        drawPanel(r.x, r.y, r.w, r.h, cardFill);
 
         // Tuş numarası rozeti
         drawPanel(r.x + 10, r.y + 10, 22, 20, UI.woodDark);
         drawText(String(i + 1), r.x + 21, r.y + 20, 14, UI.text, "center", true);
 
         // Yeni yükseltme etiketi
-        if (currentLevel === 0) {
+        if (evolution) {
+            drawText(T("evolution"), r.x + r.w - 12, r.y + 20, 13, EVOLUTION_COLOR, "right", true);
+        } else if (currentLevel === 0) {
             drawText(T("new"), r.x + r.w - 12, r.y + 20, 13, UI.gold, "right", true);
         }
 
@@ -3194,6 +3585,12 @@ function drawLevelUp() {
         ctx.fillStyle = UI.woodLight;
         ctx.fillRect(r.x + 24, r.y + 82, r.w - 48, 1);
         drawWrappedText(upgradeDesc(upgrade), cx, r.y + 108, r.w - 36, 20, 15, UI.textDim);
+
+        if (evolution) {
+            const recipe = upgrade.requires.map((id) => upgradeName(getUpgrade(id))).join(" + ");
+            drawText(recipe, cx, r.y + r.h - 24, 12, EVOLUTION_COLOR, "center", true);
+            return;
+        }
 
         // Seviye kutucukları: dolu = alınmış, yanıp sönen = bu seçimle gelecek
         const pip = 12;
@@ -3232,7 +3629,7 @@ function drawPause() {
     // Bilgiler: seviye, ses ve alınan yükseltmeler
     const owned = UPGRADES
         .filter((u) => upgradeLevels[u.id])
-        .map((u) => upgradeName(u) + " " + upgradeLevels[u.id]);
+        .map((u) => (u.evolution ? upgradeName(u) : upgradeName(u) + " " + upgradeLevels[u.id]));
 
     const lastButton = getPauseButtonRect(PAUSE_BUTTONS.length - 1);
     const infoY = lastButton.y + lastButton.h + 28;

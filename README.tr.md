@@ -38,18 +38,19 @@ Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz dü�
 
 ## Özellikler
 
-- **XP ve seviye sistemi**: yenilen düşmanlar parlayan XP kristalleri düşürür, her seviyede 17 yükseltmelik havuzdan çıkan üç karttan birini seçersin
+- **XP ve seviye sistemi**: yenilen düşmanlar parlayan XP kristalleri düşürür, her seviyede 17 yükseltmelik havuzdan çıkan üç karttan birini seçersin; doğru ikiliyi sonuna kadar alınca 3 evrimden biri açılır
 - **Boss savaşları**: her 60 saniyede bir, her biri öncekinden güçlü
 - **Ormanla çevrili, çitli büyük bir çayır** (yaklaşık 3×3 ekran), oyuncuyu takip eden kamera ve mini harita
 - **Pixel art dünya**: doğal açık ve koyu bölgeleri olan çimen, ahşap çitler, ağaçlar, çiçekler, mantarlar, kütükler, çalılar ve taşlar
 - **Akıcı hareket ve nişan alma**, kare hızından bağımsız fizik (delta time) ile
 - **Otomatik ateş**, atış hızı sınırıyla: basılı tutmak da tıklamak kadar adil
-- **Beş düşman tipi ve elite varyantları**, uzaktan saldıran ve hücum eden düşmanlar dahil
-- **Dört güçlendirme**, yenilen düşmanlardan düşer
+- **Altı düşman tipi ve elite varyantları**, uzaktan saldıran, hücum eden ve bölünen düşmanlar dahil
+- **Yedi güçlendirme**, yenilen düşmanlardan düşer
 - **Dengeli zorluk eğrisi**: düşmanların sayısı, hızı ve canı zamanla artar, ilerleyen dakikalarda gruplar halinde gelirler; verdikleri XP de artar, böylece build'in zorluğa yetişebilir
 - **Can barı**: 100 can, hasar sayıları ve az önce ne kadar can gittiğini gösteren, yavaşça eriyen "hayalet" bar; her düşman farklı miktarda hasar verir
 - **Hasar sonrası dokunulmazlık**
 - **Pixel art sprite'lar**, vurulunca beyaz yanıp sönme efektiyle
+- **Hasar sayıları**: her vuruşta verilen hasar belirir, kritik vuruşlarda daha büyük ve turuncu
 - **Oyun hissi efektleri**: parçacık patlamaları, ekran sarsıntısı, hasar flaşı ve yükselen yazılar
 - **Prosedürel ses efektleri**, Web Audio API ile gerçek zamanlı üretilir, ses dosyası kullanılmaz
 - **Kalıcı en yüksek skor**, tarayıcıda `localStorage` ile saklanır
@@ -64,6 +65,7 @@ Zamanla daha hızlı, daha dayanıklı ve daha kalabalık hale gelen sonsuz dü�
 | 🔴 Normal | Standart düşman. Baştan itibaren gelir. |
 | 🟠 Hızlı | Küçük ve çevik. 15. saniyeden sonra gelir. |
 | 🟣 Tank | Büyük, yavaş ve 4 vuruşta ölür. 30. saniyeden sonra gelir ve daha sık güçlendirme düşürür. |
+| 🩷 Splitter | Ölünce iki küçük ve hızlı parçaya bölünen pembe bir balçık (elite ise üç). 1:30'dan sonra gelir, normal düşmanların bir kısmının yerini alır. |
 | 🟡 Spitter | Mesafesini korur ve uzaktan zehir tükürür. 5:00'ten sonra gelir. |
 | 🔴 Charger | Durur, gideceği yolu kırmızı çizgiyle gösterir, sonra çok hızlı hücum eder. 7:00'den sonra gelir. |
 | ✨ Elite | 8:00'den sonra her düşman altın parlayan bir elite olarak gelebilir: daha büyük, 3 kat can, 1.5 kat hasar, 3 kat ödül. %5 ile başlar ve her dakika artar. |
@@ -72,7 +74,7 @@ Bütün düşman hasarları her dakika %5 artar; yani her şeyi sonuna kadar alm
 
 ### Boss
 
-Her 60 saniyede bir, önce bir uyarıyla taçlı dev bir canavar gelir. Yavaşça seni kovalar ve iki saldırı arasında geçiş yapar: her yöne mermi halkası ve sana nişanlı yelpaze atış. Her yeni boss'un canı daha fazladır (zamanla da artar), daha çok mermi atar ve daha sık saldırır. 3. boss'tan itibaren dönen bir sarmal mermi yağmuru, 5. boss'tan itibaren de minyon çağırma saldırısı eklenir. Onu yenmek büyük skor bonusu, bol XP ve garanti güçlendirme kazandırır.
+Her 60 saniyede bir, önce bir uyarıyla taçlı dev bir canavar gelir. Yavaşça seni kovalar ve iki saldırı arasında geçiş yapar: her yöne mermi halkası ve sana nişanlı yelpaze atış. Her yeni boss'un canı daha fazladır (zamanla da artar), daha çok mermi atar ve daha sık saldırır. 3. boss'tan itibaren dönen bir sarmal mermi yağmuru, 5. boss'tan itibaren de minyon çağırma saldırısı eklenir. Onu yenmek büyük skor bonusu, bol XP, garanti güçlendirme ve bir **hazine sandığı** kazandırır. Sandığın üstüne yürüyünce açılır ve rastgele bir yükseltme bedavaya gelir (açılmış bir evrim varsa o); ekranın üstünde çıkan bir pano tam olarak ne kazandığını gösterir. Her şey sonuna kadar alınmışsa canını tamamen doldurur ve bonus skor verir.
 
 ### Yükseltmeler
 
@@ -98,6 +100,16 @@ Her 60 saniyede bir, önce bir uyarıyla taçlı dev bir canavar gelir. Yavaşç
 
 Her seviye atlamada en az bir saldırı yükseltmesi teklif edilir, böylece hasarın her zaman zorluğa yetişebilir.
 
+### Evrimler
+
+Bir ikilideki iki yükseltme de sonuna kadar alınınca, evrimleşmiş hali bir sonraki seviye atlamada parlayan mor bir kartla mutlaka çıkar. Her evrim bir kez alınabilir.
+
+| Evrim | Gereken | Etkisi |
+| --- | --- | --- |
+| Ray Tüfeği (Railgun) | Çoklu Atış + Delici Mermi | Mermiler bütün düşmanları deler ve %25 daha fazla hasar verir |
+| Buz Bıçakları (Frost Blades) | Dönen Bıçaklar + Buz Aurası | +1 bıçak, bıçaklar kestiği düşmanı dondurur (1.5 sn boyunca %60 yavaşlama) |
+| İnfilak (Detonation) | Patlayıcı Mermi + Kritik Vuruş | +%10 kritik şansı, kritik vuruşlar çarptığı yerde patlar |
+
 ### Güçlendirmeler
 
 | Güçlendirme | Etkisi |
@@ -106,6 +118,11 @@ Her seviye atlamada en az bir saldırı yükseltmesi teklif edilir, böylece has
 | 🟡 `R` Rapid Fire | 6 saniye boyunca 2.5 kat hızlı ateş |
 | 🔵 `3` Triple Shot | 8 saniye boyunca aynı anda üç mermi |
 | 🟣 `S` Shield | Alacağın bir sonraki hasarı engeller |
+| 🧲 Magnet (Mıknatıs) | Haritadaki bütün XP kristallerini sana çeker |
+| ❄️ Freeze (Dondurma) | Bütün düşmanları 4 saniye yerinde dondurur (boss'lar yarı hıza düşer) |
+| 💣 Bomb (Bomba) | Ekrandaki bütün düşmanları yok eder, düşman mermilerini siler ve boss'un maksimum canının %8'i kadar hasar verir |
+
+En sık can düşer, en nadir bomba.
 
 ## Yerelde Çalıştırma
 

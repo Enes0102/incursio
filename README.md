@@ -36,18 +36,19 @@ Survive as long as you can against endless waves of enemies that get faster, tou
 
 ## Features
 
-- **XP and level-up system** — defeated enemies drop glowing XP gems; every level lets you pick one of three random upgrades from a pool of 17
+- **XP and level-up system** — defeated enemies drop glowing XP gems; every level lets you pick one of three random upgrades from a pool of 17, and maxing the right pair unlocks one of 3 evolutions
 - **Boss fights** every 60 seconds, each boss tougher than the last
 - **Large fenced meadow** (about 3×3 screens) surrounded by forest, with a camera that follows the player and a minimap
 - **Pixel art world**: grass with natural light and dark patches, wooden fences, trees, flowers, mushrooms, stumps, bushes and rocks
 - **Smooth movement and aiming** with frame-rate independent physics (delta time)
 - **Automatic fire** with a fire-rate limit, so holding the button is as fair as clicking
-- **Five enemy types plus elite variants**, including ranged and charging enemies
-- **Four power-ups** dropped by defeated enemies
+- **Six enemy types plus elite variants**, including ranged, charging and splitting enemies
+- **Seven power-ups** dropped by defeated enemies
 - **Balanced difficulty curve** — enemies grow in number, speed and health over time, arriving in groups later on, while XP rewards scale so your build can keep up
 - **Health bar** with 100 HP, damage numbers and a trailing "ghost" bar that shows how much you just lost; different enemies hit for different amounts
 - **Invincibility frames** after taking damage
 - **Pixel art sprites** with hit flashes
+- **Damage numbers** pop up on every hit; critical hits show bigger orange numbers
 - **Game feel effects**: particle explosions, screen shake, damage flash and floating text
 - **Procedural sound effects** generated in real time with the Web Audio API — no audio files
 - **Persistent high score** saved in the browser with `localStorage`
@@ -62,6 +63,7 @@ Survive as long as you can against endless waves of enemies that get faster, tou
 | 🔴 Normal | The standard enemy. Appears from the start. |
 | 🟠 Fast | Small and quick. Appears after 15 seconds. |
 | 🟣 Tank | Big, slow and takes 4 hits. Appears after 30 seconds and drops power-ups more often. |
+| 🩷 Splitter | A pink slime that splits into two small, quick splitlings when killed (three if elite). Appears after 1:30, replacing some of the normal enemies. |
 | 🟡 Spitter | Keeps its distance and spits poison from range. Appears after 5:00. |
 | 🔴 Charger | Stops, telegraphs its path with a red line, then charges at high speed. Appears after 7:00. |
 | ✨ Elite | Any enemy can spawn as a golden elite after 8:00: bigger, 3× health, 1.5× damage, 3× rewards. Starts at 5% and grows every minute. |
@@ -70,7 +72,7 @@ All enemy damage increases by 5% every minute, so a maxed-out build still has to
 
 ### Boss
 
-A crowned giant appears every 60 seconds after a warning. It slowly chases you and alternates between two attacks: a ring of bullets in every direction and an aimed spread shot. Each new boss has more health (also scaling with time), fires more bullets and attacks more often. From the 3rd boss on it adds a spinning spiral barrage, and from the 5th it summons minions. Defeating it gives a big score bonus, lots of XP and guaranteed power-ups.
+A crowned giant appears every 60 seconds after a warning. It slowly chases you and alternates between two attacks: a ring of bullets in every direction and an aimed spread shot. Each new boss has more health (also scaling with time), fires more bullets and attacks more often. From the 3rd boss on it adds a spinning spiral barrage, and from the 5th it summons minions. Defeating it gives a big score bonus, lots of XP, guaranteed power-ups and a **treasure chest**. Walk over the chest to open it and get a free random upgrade (an evolution if one is unlocked); a banner at the top of the screen shows exactly what you got. If everything is maxed, it fully heals you and gives bonus score.
 
 ### Upgrades
 
@@ -96,6 +98,16 @@ A crowned giant appears every 60 seconds after a warning. It slowly chases you a
 
 Every level-up offers at least one offensive upgrade, so your damage can always keep up.
 
+### Evolutions
+
+When both upgrades in a pair are maxed, the evolved version is guaranteed to show up on your next level-up, on a glowing purple card. Each evolution can be taken once.
+
+| Evolution | Requires | Effect |
+| --- | --- | --- |
+| Railgun | Multishot + Piercing Rounds | Bullets pierce every enemy and deal 25% more damage |
+| Frost Blades | Orbiting Blades + Frost Aura | +1 blade, and blades freeze the enemies they cut (60% slow for 1.5 s) |
+| Detonation | Explosive Rounds + Critical Hit | +10% crit chance, and critical hits explode on impact |
+
 ### Power-ups
 
 | Power-up | Effect |
@@ -104,6 +116,11 @@ Every level-up offers at least one offensive upgrade, so your damage can always 
 | 🟡 `R` Rapid Fire | Shoots 2.5× faster for 6 seconds |
 | 🔵 `3` Triple Shot | Fires three bullets at once for 8 seconds |
 | 🟣 `S` Shield | Blocks the next hit you take |
+| 🧲 Magnet | Pulls every XP gem on the map to you |
+| ❄️ Freeze | Freezes all enemies in place for 4 seconds (bosses are slowed by half) |
+| 💣 Bomb | Destroys every enemy on screen, clears enemy bullets and deals 8% of a boss's max health |
+
+Health is the most common drop and the bomb is the rarest.
 
 ## Running Locally
 
